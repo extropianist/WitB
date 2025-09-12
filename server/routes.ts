@@ -14,14 +14,23 @@ declare module 'express-session' {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Session middleware
+  // Require SESSION_SECRET for security
+  if (!process.env.SESSION_SECRET) {
+    throw new Error('SESSION_SECRET environment variable is required for secure sessions');
+  }
+  
+  // Enable trust proxy for secure cookies behind reverse proxy
+  app.set('trust proxy', 1);
+  
+  // Session middleware with production-ready security
   app.use(session({
-    secret: process.env.SESSION_SECRET || "default_session_secret",
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
+      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   }));
@@ -71,8 +80,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      req.session.userId = user.id;
-      res.json({ user });
+      // Regenerate session to prevent session fixation attacks
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration failed:', err);
+          return res.status(500).json({ message: 'Login failed' });
+        }
+        
+        req.session.userId = user.id;
+        res.json({ user });
+      });
     } catch (error) {
       console.error("Auth verification failed:", error);
       res.status(500).json({ message: "Authentication failed" });
