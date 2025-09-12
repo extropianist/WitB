@@ -11,6 +11,8 @@ import {
   type InsertItemPhoto,
   type Membership,
   type InsertMembership,
+  type GoogleTokens,
+  type InsertGoogleTokens,
   type RoomWithStats,
   type BoxWithStats,
   type ItemWithPhotos,
@@ -19,7 +21,8 @@ import {
   boxes,
   items,
   itemPhotos,
-  memberships
+  memberships,
+  googleTokens
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -67,6 +70,13 @@ export interface IStorage {
   // Access Control
   hasRoomAccess(roomId: string, userId: string): Promise<boolean>;
   isRoomAdmin(roomId: string, userId: string): Promise<boolean>;
+
+  // Google Tokens
+  getGoogleTokens(userId: string): Promise<GoogleTokens | undefined>;
+  saveGoogleTokens(tokens: InsertGoogleTokens): Promise<GoogleTokens>;
+  updateGoogleTokens(userId: string, updates: Partial<GoogleTokens>): Promise<GoogleTokens | undefined>;
+  deleteGoogleTokens(userId: string): Promise<boolean>;
+  refreshGoogleTokens(userId: string, newTokens: { accessToken: string; expiryDate?: Date }): Promise<GoogleTokens | undefined>;
 }
 
 // Database implementation using Drizzle ORM
@@ -337,6 +347,44 @@ export class DatabaseStorage implements IStorage {
     const membership = await this.getMembership(roomId, userId);
     return membership?.role === "admin";
   }
+
+  // Google Tokens methods
+  async getGoogleTokens(userId: string): Promise<GoogleTokens | undefined> {
+    const [tokens] = await db.select().from(googleTokens).where(eq(googleTokens.userId, userId));
+    return tokens || undefined;
+  }
+
+  async saveGoogleTokens(insertTokens: InsertGoogleTokens): Promise<GoogleTokens> {
+    const [tokens] = await db.insert(googleTokens).values([insertTokens]).returning();
+    return tokens;
+  }
+
+  async updateGoogleTokens(userId: string, updates: Partial<GoogleTokens>): Promise<GoogleTokens | undefined> {
+    const [tokens] = await db
+      .update(googleTokens)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(googleTokens.userId, userId))
+      .returning();
+    return tokens || undefined;
+  }
+
+  async deleteGoogleTokens(userId: string): Promise<boolean> {
+    const result = await db.delete(googleTokens).where(eq(googleTokens.userId, userId));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async refreshGoogleTokens(userId: string, newTokens: { accessToken: string; expiryDate?: Date }): Promise<GoogleTokens | undefined> {
+    const [tokens] = await db
+      .update(googleTokens)
+      .set({
+        accessToken: newTokens.accessToken,
+        expiryDate: newTokens.expiryDate || null,
+        updatedAt: new Date()
+      })
+      .where(eq(googleTokens.userId, userId))
+      .returning();
+    return tokens || undefined;
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -346,6 +394,7 @@ export class MemStorage implements IStorage {
   private items: Map<string, Item> = new Map();
   private itemPhotos: Map<string, ItemPhoto> = new Map();
   private memberships: Map<string, Membership> = new Map();
+  private googleTokens: Map<string, GoogleTokens> = new Map();
 
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
@@ -592,6 +641,56 @@ export class MemStorage implements IStorage {
   async isRoomAdmin(roomId: string, userId: string): Promise<boolean> {
     const membership = await this.getMembership(roomId, userId);
     return membership?.role === "admin";
+  }
+
+  // Google Tokens methods (in-memory implementation)
+  async getGoogleTokens(userId: string): Promise<GoogleTokens | undefined> {
+    return Array.from(this.googleTokens.values()).find(t => t.userId === userId);
+  }
+
+  async saveGoogleTokens(insertTokens: InsertGoogleTokens): Promise<GoogleTokens> {
+    const id = randomUUID();
+    const tokens: GoogleTokens = {
+      ...insertTokens,
+      id,
+      refreshToken: insertTokens.refreshToken || null,
+      expiryDate: insertTokens.expiryDate || null,
+      scopes: insertTokens.scopes || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.googleTokens.set(id, tokens);
+    return tokens;
+  }
+
+  async updateGoogleTokens(userId: string, updates: Partial<GoogleTokens>): Promise<GoogleTokens | undefined> {
+    const existing = await this.getGoogleTokens(userId);
+    if (!existing) return undefined;
+    
+    const updated = { ...existing, ...updates, updatedAt: new Date() };
+    this.googleTokens.set(existing.id, updated);
+    return updated;
+  }
+
+  async deleteGoogleTokens(userId: string): Promise<boolean> {
+    const existing = await this.getGoogleTokens(userId);
+    if (!existing) return false;
+    
+    return this.googleTokens.delete(existing.id);
+  }
+
+  async refreshGoogleTokens(userId: string, newTokens: { accessToken: string; expiryDate?: Date }): Promise<GoogleTokens | undefined> {
+    const existing = await this.getGoogleTokens(userId);
+    if (!existing) return undefined;
+    
+    const updated: GoogleTokens = {
+      ...existing,
+      accessToken: newTokens.accessToken,
+      expiryDate: newTokens.expiryDate || null,
+      updatedAt: new Date()
+    };
+    this.googleTokens.set(existing.id, updated);
+    return updated;
   }
 }
 
