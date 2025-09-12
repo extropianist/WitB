@@ -1,0 +1,159 @@
+Inventory App (Replit + Google Workspace) — Finalized Requirements
+1) Goal & Scope
+
+Hierarchy: ROOM → BOX → ITEM (with photos).
+
+UI flow: Home lists ROOMs → click to see BOXes → click a BOX to see ITEMs + photos.
+
+Accounts & access:
+
+Admin: Add/Create/View/Delete ROOM/BOX/ITEM; invite/remove users to a ROOM; change a user’s role (Viewer↔None).
+
+User (Viewer): View-only for ROOMs they’re invited to (all BOXes within visible; no edits).
+
+Storage: Structured data in Google Sheets; image files in Google Drive; Google Sign-In for auth and consent. Use the Google Picker API to select/upload photos. 
+Google for Developers
++3
+Google for Developers
++3
+Google Cloud
++3
+
+Hosting: Replit Deployments—start with Autoscale; move to Reserved VM if you need always-on behavior. Static assets can be on Static Deployments. 
+Replit Docs
++2
+Replit Docs
++2
+
+2) Security & Privacy (your decisions applied)
+
+QR access: Require Google login; QR resolves to /box/{box_id} which checks session + membership (no public pages).
+
+Photos: Store original in Drive; generate and use down-sized display copies for UI.
+
+Drive organization: Create one Drive folder per ROOM; inside, subfolders per BOX for photos.
+
+Exports: Provide both (a) Room Backup ZIP (CSV + photos) and (b) Pull-sheet PDF generator per BOX.
+
+Use Google Identity Services (OIDC/OAuth2) for login + consent; least-privilege scopes (spreadsheets, drive.file, Picker). 
+Google for Developers
++1
+
+3) Data Model (Google Sheets)
+
+Single spreadsheet with tabs:
+
+Rooms: room_id, room_name, description, created_at, created_by
+
+Boxes: box_id, room_id, box_label, notes, created_at
+
+Items: item_id, box_id, name, description, qty, primary_photo_file_id, created_at
+
+ItemPhotos: item_photo_id, item_id, drive_file_id, web_view_link, thumb_link
+
+Memberships: room_id, google_user_id, role (Admin|User)
+
+PullSheets: box_id, qr_image_drive_file_id, last_generated_at
+
+Limits & quotas to respect: Sheets ~300 read requests/min per project; batch requests + backoff on 429. Sheets files cap at ~10M cells. 
+Google for Developers
++2
+Google Help
++2
+
+4) Google Drive & Photos
+
+Foldering: /AppRoot/<room_id>/<box_id>/…
+
+Upload: Drive files.create with uploadType=media|multipart|resumable; store the returned fileId and webViewLink. 
+Google for Developers
++1
+
+Picker: Use DocsUploadView to let Admins upload/select; Picker is separate from Drive API but designed to work together. 
+Google for Developers
++1
+
+Thumbnails: After upload, generate a down-sized copy (server-side image resize) and store its fileId as thumb_link.
+
+5) Pull-Sheet (per BOX)
+
+Contents: Room name, Box label, updated timestamp, item table (name, qty), QR code.
+
+QR target: /box/{box_id} (login required).
+
+Generation: Server-side PNG/SVG using a QR library; save the QR image to Drive; cache its fileId in PullSheets tab. 
+Google for Developers
+
+6) Exports
+
+Room Backup ZIP:
+
+CSVs: Rooms.csv, Boxes.csv, Items.csv, ItemPhotos.csv, Memberships.csv filtered to the ROOM.
+
+Photos: include all BOX photo files (originals) under a photos/ tree that mirrors Drive folders.
+
+Pull-sheet PDF (single BOX or bulk): one page per BOX (QR + items).
+
+7) Roles & Permissions (enforcement points)
+
+Login required everywhere. Google Sign-In establishes identity; app issues its session. 
+Google for Developers
+
+Room membership checks guard: Room page, Box list, Box detail, exports, and pull-sheet views.
+
+Admin-only actions: CRUD on ROOM/BOX/ITEM, photo attach, invite/remove users, role changes, exports, pull-sheet generation.
+
+8) UX (MVP)
+
+Rooms: card grid (counts: boxes, items). Admin sees “Invite user,” “New Box”; Users see only rooms they’re in.
+
+Boxes (per Room): list + search; Admin action: “Generate Pull-sheet PDF,” “Export Room ZIP.”
+
+Box Detail: item list with thumbnails; Admin: add item, attach photo (Picker), regenerate pull-sheet.
+
+Invite Dialog (Admin): search by email → add as User (Viewer) or Admin (per Room).
+
+9) Implementation Notes (Replit + Flask)
+
+Deployments:
+
+Start with Autoscale (cost-efficient; scales to zero).
+
+Switch to Reserved VM for always-on tasks (bulk ZIP, image processing). 
+Replit Docs
++1
+
+Auth: Use Google Identity Services (OIDC) for login + OAuth scopes for Sheets/Drive. 
+Google for Developers
+
+Sheets: Use batch values.append/update and exponential backoff. 
+Google for Developers
+
+Drive: files.create with appropriate upload type; move files into the <room>/<box> folder; persist fileId and links. 
+Google for Developers
+
+Picker: Load JS Picker; include DocsUploadView for uploads; receive selected file metadata (IDs) to store in Sheets. 
+Google for Developers
+
+Static assets: Optional Static Deployment for the frontend bundle. 
+Replit Docs
+
+10) Acceptance Criteria
+
+Access control:
+
+Users can only view ROOMs they’re invited to; Admin can toggle roles per ROOM.
+
+QR scan prompts Google login if not authenticated; access denied if not a member.
+
+Data integrity: Creating a BOX writes to Boxes and makes a Drive folder under its ROOM.
+
+Photos: Admin can attach photos via Picker; thumbnails render quickly (<300 ms decode after load).
+
+Pull-sheet: Admin can generate a PDF with updated item list + QR; file saved to Drive and accessible in-app.
+
+Exports: Admin can export a ROOM ZIP (CSVs + photos).
+
+Performance: ROOM and BOX pages load P95 < 1.5s for up to ~2k items/room (with thumb images).
+
+Quotas: The app backs off on Sheets 429s and never errors fatally for quota bursts.
