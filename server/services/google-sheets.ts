@@ -1,21 +1,24 @@
 import { google } from 'googleapis';
-import { googleAuthClient } from './google-auth.js';
-
-const sheets = google.sheets({ version: 'v4', auth: googleAuthClient });
+import { getValidGoogleClient } from './google-auth.js';
 
 export interface SheetRow {
   [key: string]: string | number | null;
 }
 
 class GoogleSheetsService {
+  private async getSheetsService(userId: string) {
+    const auth = await getValidGoogleClient(userId);
+    return google.sheets({ version: 'v4', auth });
+  }
   private spreadsheetId: string;
 
   constructor() {
     this.spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID || process.env.INVENTORY_SPREADSHEET_ID || "default_spreadsheet_id";
   }
 
-  async createSpreadsheet(title: string): Promise<string> {
+  async createSpreadsheet(userId: string, title: string): Promise<string> {
     try {
+      const sheets = await this.getSheetsService(userId);
       const response = await sheets.spreadsheets.create({
         requestBody: {
           properties: {
@@ -36,7 +39,7 @@ class GoogleSheetsService {
       this.spreadsheetId = spreadsheetId;
       
       // Initialize headers for each sheet
-      await this.initializeSheetHeaders();
+      await this.initializeSheetHeaders(userId);
       
       return spreadsheetId;
     } catch (error) {
@@ -45,7 +48,7 @@ class GoogleSheetsService {
     }
   }
 
-  private async initializeSheetHeaders() {
+  private async initializeSheetHeaders(userId: string) {
     const headers = {
       Rooms: ['room_id', 'room_name', 'description', 'created_at', 'created_by', 'drive_folder'],
       Boxes: ['box_id', 'room_id', 'box_label', 'notes', 'created_at', 'drive_folder', 'qr_code'],
@@ -56,12 +59,13 @@ class GoogleSheetsService {
     };
 
     for (const [sheetName, headerRow] of Object.entries(headers)) {
-      await this.appendRows(sheetName, [headerRow]);
+      await this.appendRows(userId, sheetName, [headerRow]);
     }
   }
 
-  async getRows(sheetName: string, range?: string): Promise<string[][]> {
+  async getRows(userId: string, sheetName: string, range?: string): Promise<string[][]> {
     try {
+      const sheets = await this.getSheetsService(userId);
       const fullRange = range ? `${sheetName}!${range}` : sheetName;
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
@@ -75,8 +79,9 @@ class GoogleSheetsService {
     }
   }
 
-  async appendRows(sheetName: string, rows: (string | number | null)[][]): Promise<void> {
+  async appendRows(userId: string, sheetName: string, rows: (string | number | null)[][]): Promise<void> {
     try {
+      const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
         range: sheetName,
@@ -92,8 +97,9 @@ class GoogleSheetsService {
     }
   }
 
-  async updateRows(sheetName: string, range: string, rows: (string | number | null)[][]): Promise<void> {
+  async updateRows(userId: string, sheetName: string, range: string, rows: (string | number | null)[][]): Promise<void> {
     try {
+      const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!${range}`,
@@ -108,8 +114,9 @@ class GoogleSheetsService {
     }
   }
 
-  async batchUpdate(requests: any[]): Promise<void> {
+  async batchUpdate(userId: string, requests: any[]): Promise<void> {
     try {
+      const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: this.spreadsheetId,
         requestBody: {
@@ -122,9 +129,9 @@ class GoogleSheetsService {
     }
   }
 
-  async findRowByValue(sheetName: string, columnIndex: number, value: string): Promise<number | null> {
+  async findRowByValue(userId: string, sheetName: string, columnIndex: number, value: string): Promise<number | null> {
     try {
-      const rows = await this.getRows(sheetName);
+      const rows = await this.getRows(userId, sheetName);
       
       for (let i = 0; i < rows.length; i++) {
         if (rows[i][columnIndex] === value) {

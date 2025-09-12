@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage.js";
-import { verifyGoogleToken, getGoogleAuthUrl, getGoogleTokens } from "./services/google-auth.js";
+import { verifyGoogleToken, getGoogleAuthUrl, getGoogleTokens, saveUserGoogleTokens, refreshUserGoogleTokens, revokeGoogleTokens } from "./services/google-auth.js";
 import { googleDriveService } from "./services/google-drive.js";
 import { qrGeneratorService } from "./services/qr-generator.js";
 import { insertRoomSchema, insertBoxSchema, insertItemSchema, insertMembershipSchema } from "@shared/schema.js";
@@ -41,8 +41,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
-  app.get("/api/auth/google", (req, res) => {
-    const authUrl = getGoogleAuthUrl();
+  app.get("/api/auth/google", requireAuth, (req, res) => {
+    // Generate state for CSRF protection
+    const state = Buffer.from(JSON.stringify({ userId: req.session.userId, timestamp: Date.now() })).toString('base64');
+    req.session.oauthState = state;
+    
+    const authUrl = getGoogleAuthUrl(state);
     res.json({ authUrl });
   });
 
@@ -96,6 +100,127 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Google OAuth routes
+  app.get("/api/auth/google/callback", requireAuth, async (req, res) => {
+    try {
+      const { code, state } = req.query as { code?: string; state?: string };
+      
+      if (!code) {
+        return res.status(400).json({ message: "Authorization code required" });
+      }
+      
+      if (!state) {
+        return res.status(400).json({ message: "State parameter required" });
+      }
+      
+      // Verify state against session to prevent CSRF attacks
+      if (req.session.oauthState !== state) {
+        return res.status(400).json({ message: "Invalid state parameter" });
+      }
+      
+      // Exchange code for tokens
+      const tokens = await getGoogleTokens(code);
+      
+      // Save tokens to database using session userId (not trusting state)
+      await saveUserGoogleTokens(req.session.userId!, tokens);
+      
+      // Clear state from session
+      delete req.session.oauthState;
+      
+      // Redirect to success page
+      res.redirect('/?oauth=success');
+    } catch (error) {
+      console.error("OAuth callback failed:", error);
+      res.redirect('/?oauth=error');
+    }
+  });
+  
+  app.post("/api/auth/google/callback", requireAuth, async (req, res) => {
+    try {
+      const { code, state } = req.body;
+      if (!code) {
+        return res.status(400).json({ message: "Authorization code required" });
+      }
+      
+      // Require and verify state to prevent CSRF attacks
+      if (!state) {
+        return res.status(400).json({ message: "State parameter required" });
+      }
+      
+      if (req.session.oauthState !== state) {
+        return res.status(400).json({ message: "Invalid state parameter" });
+      }
+
+      // Exchange code for tokens
+      const tokens = await getGoogleTokens(code);
+      
+      // Save tokens to database
+      await saveUserGoogleTokens(req.session.userId!, tokens);
+      
+      // Clear state from session
+      delete req.session.oauthState;
+      
+      res.json({ message: "Google OAuth authorization successful" });
+    } catch (error) {
+      console.error("OAuth callback failed:", error);
+      res.status(500).json({ message: "OAuth authorization failed" });
+    }
+  });
+
+  app.get("/api/auth/google/status", requireAuth, async (req, res) => {
+    try {
+      const tokens = await storage.getGoogleTokens(req.session.userId!);
+      const isConnected = !!tokens;
+      
+      if (isConnected && tokens.expiryDate) {
+        const now = new Date();
+        const isExpired = tokens.expiryDate <= now;
+        const willExpireSoon = tokens.expiryDate <= new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours
+        
+        res.json({
+          isConnected,
+          isExpired,
+          willExpireSoon,
+          expiryDate: tokens.expiryDate,
+          scopes: tokens.scopes
+        });
+      } else {
+        res.json({ isConnected });
+      }
+    } catch (error) {
+      console.error("Failed to get OAuth status:", error);
+      res.status(500).json({ message: "Failed to get OAuth status" });
+    }
+  });
+
+  app.post("/api/auth/google/refresh", requireAuth, async (req, res) => {
+    try {
+      const newTokens = await refreshUserGoogleTokens(req.session.userId!);
+      res.json({ message: "Tokens refreshed successfully", expiryDate: newTokens.expiry_date });
+    } catch (error) {
+      console.error("Token refresh failed:", error);
+      res.status(500).json({ message: "Failed to refresh tokens" });
+    }
+  });
+
+  app.delete("/api/auth/google/disconnect", requireAuth, async (req, res) => {
+    try {
+      // Revoke tokens at Google
+      await revokeGoogleTokens(req.session.userId!);
+      
+      // Delete local tokens
+      const success = await storage.deleteGoogleTokens(req.session.userId!);
+      if (success) {
+        res.json({ message: "Google account disconnected successfully" });
+      } else {
+        res.status(404).json({ message: "No Google connection found" });
+      }
+    } catch (error) {
+      console.error("Failed to disconnect Google account:", error);
+      res.status(500).json({ message: "Failed to disconnect Google account" });
+    }
+  });
+
   // Room routes
   app.get("/api/rooms", requireAuth, async (req, res) => {
     try {
@@ -116,7 +241,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const room = await storage.createRoom(roomData);
       
       // Create Google Drive folder for the room
-      const driveFolder = await googleDriveService.createFolder(room.name);
+      const driveFolder = await googleDriveService.createFolder(req.session.userId!, room.name);
       await storage.updateRoom(room.id, { driveFolder });
 
       // Add creator as admin
@@ -192,11 +317,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create Google Drive folder for the box
       const room = await storage.getRoom(roomId);
       if (room?.driveFolder) {
-        const driveFolder = await googleDriveService.createFolder(box.label, room.driveFolder);
+        const driveFolder = await googleDriveService.createFolder(req.session.userId!, box.label, room.driveFolder);
         await storage.updateBox(box.id, { driveFolder });
 
         // Generate QR code
-        const qrResult = await qrGeneratorService.generateAndUploadQRCode(box.id, driveFolder);
+        const qrResult = await qrGeneratorService.generateAndUploadQRCode(req.session.userId!, box.id, driveFolder);
         await storage.updateBox(box.id, { qrCode: qrResult.fileId });
       }
 
@@ -359,6 +484,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const qrResult = await qrGeneratorService.regenerateQRCode(
+        req.session.userId!,
         boxId, 
         box.qrCode || undefined, 
         box.driveFolder || undefined

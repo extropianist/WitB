@@ -1,7 +1,5 @@
 import { google } from 'googleapis';
-import { googleAuthClient } from './google-auth.js';
-
-const drive = google.drive({ version: 'v3', auth: googleAuthClient });
+import { getValidGoogleClient } from './google-auth.js';
 
 export interface DriveFile {
   id: string;
@@ -12,23 +10,29 @@ export interface DriveFile {
 }
 
 class GoogleDriveService {
-  private appRootFolderId: string | null = null;
+  private async getDriveService(userId: string) {
+    const auth = await getValidGoogleClient(userId);
+    return google.drive({ version: 'v3', auth });
+  }
+  private userAppRootFolders: Map<string, string> = new Map();
 
-  async getAppRootFolder(): Promise<string> {
-    if (this.appRootFolderId) {
-      return this.appRootFolderId;
+  async getAppRootFolder(userId: string): Promise<string> {
+    if (this.userAppRootFolders.has(userId)) {
+      return this.userAppRootFolders.get(userId)!;
     }
 
     try {
       // Search for existing app folder
+      const drive = await this.getDriveService(userId);
       const response = await drive.files.list({
         q: "name='InventoryApp' and mimeType='application/vnd.google-apps.folder'",
         fields: 'files(id, name)',
       });
 
       if (response.data.files && response.data.files.length > 0) {
-        this.appRootFolderId = response.data.files[0].id!;
-        return this.appRootFolderId;
+        const folderId = response.data.files[0].id!;
+        this.userAppRootFolders.set(userId, folderId);
+        return folderId;
       }
 
       // Create app root folder if it doesn't exist
@@ -40,17 +44,19 @@ class GoogleDriveService {
         fields: 'id',
       });
 
-      this.appRootFolderId = createResponse.data.id!;
-      return this.appRootFolderId;
+      const folderId = createResponse.data.id!;
+      this.userAppRootFolders.set(userId, folderId);
+      return folderId;
     } catch (error) {
       console.error('Failed to get/create app root folder:', error);
       throw error;
     }
   }
 
-  async createFolder(name: string, parentId?: string): Promise<string> {
+  async createFolder(userId: string, name: string, parentId?: string): Promise<string> {
     try {
-      const parent = parentId || await this.getAppRootFolder();
+      const parent = parentId || await this.getAppRootFolder(userId);
+      const drive = await this.getDriveService(userId);
       
       const response = await drive.files.create({
         requestBody: {
@@ -69,13 +75,15 @@ class GoogleDriveService {
   }
 
   async uploadFile(
+    userId: string,
     fileName: string,
     mimeType: string,
     fileData: Buffer,
     parentId?: string
   ): Promise<DriveFile> {
     try {
-      const parent = parentId || await this.getAppRootFolder();
+      const parent = parentId || await this.getAppRootFolder(userId);
+      const drive = await this.getDriveService(userId);
       
       const response = await drive.files.create({
         requestBody: {
@@ -103,8 +111,9 @@ class GoogleDriveService {
     }
   }
 
-  async getFile(fileId: string): Promise<DriveFile> {
+  async getFile(userId: string, fileId: string): Promise<DriveFile> {
     try {
+      const drive = await this.getDriveService(userId);
       const response = await drive.files.get({
         fileId,
         fields: 'id, name, webViewLink, webContentLink, thumbnailLink',
@@ -124,8 +133,9 @@ class GoogleDriveService {
     }
   }
 
-  async deleteFile(fileId: string): Promise<void> {
+  async deleteFile(userId: string, fileId: string): Promise<void> {
     try {
+      const drive = await this.getDriveService(userId);
       await drive.files.delete({
         fileId,
       });
@@ -135,20 +145,21 @@ class GoogleDriveService {
     }
   }
 
-  async createThumbnail(originalFileId: string, parentId?: string): Promise<DriveFile> {
+  async createThumbnail(userId: string, originalFileId: string, parentId?: string): Promise<DriveFile> {
     try {
       // For now, we'll return the original file as a placeholder
       // In a real implementation, you would use an image processing service
       // to create a thumbnail and upload it
-      return await this.getFile(originalFileId);
+      return await this.getFile(userId, originalFileId);
     } catch (error) {
       console.error('Failed to create thumbnail:', error);
       throw error;
     }
   }
 
-  async moveFile(fileId: string, newParentId: string): Promise<void> {
+  async moveFile(userId: string, fileId: string, newParentId: string): Promise<void> {
     try {
+      const drive = await this.getDriveService(userId);
       // Get current parents
       const file = await drive.files.get({
         fileId,

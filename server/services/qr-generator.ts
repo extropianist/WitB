@@ -21,7 +21,7 @@ class QRGeneratorService {
     }
   }
 
-  async generateAndUploadQRCode(boxId: string, parentFolderId?: string): Promise<{ fileId: string; webViewLink: string }> {
+  async generateAndUploadQRCode(userId: string, boxId: string, parentFolderId?: string): Promise<{ fileId: string; webViewLink: string }> {
     try {
       // Generate QR code with box URL
       const baseUrl = process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000';
@@ -31,6 +31,7 @@ class QRGeneratorService {
       
       // Upload to Google Drive
       const driveFile = await googleDriveService.uploadFile(
+        userId,
         `qr-${boxId}.png`,
         'image/png',
         qrCodeBuffer,
@@ -47,19 +48,19 @@ class QRGeneratorService {
     }
   }
 
-  async regenerateQRCode(boxId: string, oldFileId?: string, parentFolderId?: string): Promise<{ fileId: string; webViewLink: string }> {
+  async regenerateQRCode(userId: string, boxId: string, oldFileId?: string, parentFolderId?: string): Promise<{ fileId: string; webViewLink: string }> {
     try {
       // Delete old QR code if it exists
       if (oldFileId) {
         try {
-          await googleDriveService.deleteFile(oldFileId);
+          await googleDriveService.deleteFile(userId, oldFileId);
         } catch (error) {
           console.warn('Failed to delete old QR code:', error);
         }
       }
 
       // Generate new QR code
-      return await this.generateAndUploadQRCode(boxId, parentFolderId);
+      return await this.generateAndUploadQRCode(userId, boxId, parentFolderId);
     } catch (error) {
       console.error('Failed to regenerate QR code:', error);
       throw error;
