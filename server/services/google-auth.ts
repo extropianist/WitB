@@ -116,10 +116,11 @@ export async function refreshUserGoogleTokens(userId: string): Promise<any> {
         new Date(Date.now() + tokenResponse.res.data.expires_in * 1000) : undefined
     });
     
-    
-    return { access_token: tokenResponse.token, expiry_date: tokenResponse.res?.data.expires_in ? Date.now() + tokenResponse.res.data.expires_in * 1000 : undefined };
-    
-    return tokenResponse;
+    return { 
+      access_token: tokenResponse.token, 
+      expiry_date: tokenResponse.res?.data.expires_in ? 
+        Date.now() + tokenResponse.res.data.expires_in * 1000 : undefined 
+    };
   } catch (error) {
     console.error('Failed to refresh Google tokens:', error);
     throw error;

@@ -30,7 +30,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     cookie: {
       secure: process.env.NODE_ENV === 'production',
       httpOnly: true,
-      sameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
+      sameSite: 'lax', // Allow OAuth redirects while maintaining security
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   }));
