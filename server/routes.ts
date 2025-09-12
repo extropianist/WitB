@@ -35,6 +35,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Auth routes
+  app.get("/api/auth/config", (req, res) => {
+    res.json({ 
+      googleClientId: process.env.GOOGLE_CLIENT_ID 
+    });
+  });
+
   app.get("/api/auth/google", (req, res) => {
     const authUrl = getGoogleAuthUrl();
     res.json({ authUrl });

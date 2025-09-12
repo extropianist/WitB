@@ -65,6 +65,17 @@ export const pullSheets = pgTable("pull_sheets", {
   lastGeneratedAt: timestamp("last_generated_at").defaultNow(),
 });
 
+export const googleTokens = pgTable("google_tokens", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token"),
+  expiryDate: timestamp("expiry_date"),
+  scopes: jsonb("scopes").$type<string[]>(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -100,6 +111,12 @@ export const insertMembershipSchema = createInsertSchema(memberships).omit({
   createdAt: true,
 });
 
+export const insertGoogleTokensSchema = createInsertSchema(googleTokens).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -120,6 +137,9 @@ export type Membership = typeof memberships.$inferSelect;
 export type InsertMembership = z.infer<typeof insertMembershipSchema>;
 
 export type PullSheet = typeof pullSheets.$inferSelect;
+
+export type GoogleTokens = typeof googleTokens.$inferSelect;
+export type InsertGoogleTokens = z.infer<typeof insertGoogleTokensSchema>;
 
 // Extended types with relations
 export type RoomWithStats = Room & {

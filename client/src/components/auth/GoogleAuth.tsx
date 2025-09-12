@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 
 declare global {
   interface Window {
@@ -12,8 +13,29 @@ declare global {
 
 export default function GoogleAuth() {
   const { login, isLoggingIn } = useAuth();
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    // Fetch Google Client ID from backend
+    const fetchConfig = async () => {
+      try {
+        const response = await apiRequest("GET", "/api/auth/config");
+        const config = await response.json();
+        setGoogleClientId(config.googleClientId);
+      } catch (error) {
+        console.error("Failed to fetch auth config:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchConfig();
+  }, []);
+
+  useEffect(() => {
+    if (!googleClientId || isLoading) return;
+
     // Load Google Identity Services
     const script = document.createElement('script');
     script.src = 'https://accounts.google.com/gsi/client';
@@ -24,16 +46,19 @@ export default function GoogleAuth() {
     script.onload = () => {
       if (window.google) {
         window.google.accounts.id.initialize({
-          client_id: import.meta.env.VITE_GOOGLE_CLIENT_ID || "default_client_id",
+          client_id: googleClientId,
           callback: handleCredentialResponse,
         });
       }
     };
 
     return () => {
-      document.head.removeChild(script);
+      const existingScript = document.querySelector('script[src="https://accounts.google.com/gsi/client"]');
+      if (existingScript) {
+        document.head.removeChild(existingScript);
+      }
     };
-  }, []);
+  }, [googleClientId, isLoading]);
 
   const handleCredentialResponse = (response: any) => {
     if (response.credential) {
@@ -64,11 +89,16 @@ export default function GoogleAuth() {
         <CardContent>
           <Button
             onClick={handleGoogleSignIn}
-            disabled={isLoggingIn}
+            disabled={isLoggingIn || isLoading || !googleClientId}
             className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
             data-testid="button-google-signin"
           >
-            {isLoggingIn ? (
+            {isLoading ? (
+              <>
+                <i className="fas fa-spinner fa-spin mr-2"></i>
+                Loading...
+              </>
+            ) : isLoggingIn ? (
               <>
                 <i className="fas fa-spinner fa-spin mr-2"></i>
                 Signing in...
