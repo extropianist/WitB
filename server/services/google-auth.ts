@@ -25,19 +25,41 @@ export interface GoogleUserInfo {
 export async function verifyGoogleToken(token: string): Promise<GoogleUserInfo | null> {
   try {
     const client = createOAuth2Client();
+    const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+    
+    if (!clientId) {
+      throw new Error('Google Client ID not configured');
+    }
+    
+    // Enhanced token verification with proper audience validation
     const ticket = await client.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID,
+      audience: clientId, // Verify the token was issued for our app
     });
 
     const payload = ticket.getPayload();
-    if (!payload) return null;
+    if (!payload) {
+      console.warn('Google token verification succeeded but payload is empty');
+      return null;
+    }
+
+    // Validate required fields are present
+    if (!payload.sub || !payload.email || !payload.name) {
+      console.warn('Google token payload missing required fields');
+      return null;
+    }
+
+    // Additional security checks
+    if (payload.aud !== clientId) {
+      console.warn('Google token audience mismatch');
+      return null;
+    }
 
     return {
       id: payload.sub,
-      email: payload.email!,
-      name: payload.name!,
-      picture: payload.picture!,
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture || '',
     };
   } catch (error) {
     console.error('Google token verification failed:', error);
@@ -47,31 +69,57 @@ export async function verifyGoogleToken(token: string): Promise<GoogleUserInfo |
 
 export function getGoogleAuthUrl(state?: string): string {
   const client = createOAuth2Client();
+  
+  // Define scopes with proper validation
   const scopes = [
     'openid',
-    'email',
+    'email', 
     'profile',
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive.file'
   ];
 
-  return client.generateAuthUrl({
-    access_type: 'offline',
-    scope: scopes,
-    include_granted_scopes: true,
-    prompt: 'consent', // Ensure we get refresh token
-    state: state, // CSRF protection
-  });
+  try {
+    const authUrl = client.generateAuthUrl({
+      access_type: 'offline', // Required for refresh tokens
+      scope: scopes,
+      include_granted_scopes: true,
+      prompt: 'consent', // Force consent to ensure refresh token
+      state: state, // CSRF protection
+      response_type: 'code', // Explicit authorization code flow
+    });
+    
+    console.log('Generated Google auth URL with scopes:', scopes);
+    return authUrl;
+  } catch (error) {
+    console.error('Failed to generate Google auth URL:', error);
+    throw new Error(`Failed to generate authentication URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 export async function getGoogleTokens(code: string) {
   try {
     const client = createOAuth2Client();
     const { tokens } = await client.getToken(code);
+    
+    // Validate that we received the required tokens
+    if (!tokens.access_token) {
+      throw new Error('No access token received from Google');
+    }
+    
+    // Log token acquisition for debugging (without exposing tokens)
+    console.log('Successfully acquired Google tokens', {
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      hasIdToken: !!tokens.id_token,
+      scopes: tokens.scope,
+      expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date).toISOString() : 'none'
+    });
+    
     return tokens;
   } catch (error) {
     console.error('Failed to get Google tokens:', error);
-    throw error;
+    throw new Error(`Google token exchange failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
@@ -89,21 +137,28 @@ export async function saveUserGoogleTokens(userId: string, tokens: any): Promise
       scopes = scopeList.length > 0 ? Array.from(scopeList) : null;
     }
     
-    const tokenData: InsertGoogleTokens = {
-      userId,
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token || null,
-      expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      scopes
-    };
-    
     // Check if tokens already exist for this user
     const existingTokens = await storage.getGoogleTokens(userId);
     
     if (existingTokens) {
-      await storage.updateGoogleTokens(userId, tokenData);
+      // For updates, create partial update object
+      const updateData = {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token || null,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        scopes
+      };
+      await storage.updateGoogleTokens(userId, updateData);
     } else {
-      await storage.saveGoogleTokens(tokenData);
+      // For new tokens, create insert object
+      const insertData: InsertGoogleTokens = {
+        userId,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token || null,
+        expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+        scopes
+      };
+      await storage.saveGoogleTokens(insertData);
     }
   } catch (error) {
     console.error('Failed to save Google tokens:', error);
@@ -115,35 +170,62 @@ export async function refreshUserGoogleTokens(userId: string): Promise<any> {
   try {
     const storedTokens = await storage.getGoogleTokens(userId);
     if (!storedTokens || !storedTokens.refreshToken) {
-      throw new Error('No refresh token available');
+      throw new Error('No refresh token available for user');
     }
     
     const client = createOAuth2Client();
-    client.setCredentials({
-      refresh_token: storedTokens.refreshToken
-    });
     
-    const tokenResponse = await client.getAccessToken();
-    
-    if (!tokenResponse.token) {
-      throw new Error('Failed to obtain new access token');
+    // Enhanced credential handling with proper error catching
+    try {
+      client.setCredentials({
+        refresh_token: storedTokens.refreshToken
+      });
+    } catch (error) {
+      throw new Error(`Failed to set refresh token credentials: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
     
-    // Calculate expiry - use expires_in if available, otherwise set conservative 1 hour TTL
+    // Attempt token refresh with better error handling
+    let tokenResponse;
+    try {
+      tokenResponse = await client.getAccessToken();
+    } catch (error) {
+      // Check if this is a refresh token revocation error
+      if (error instanceof Error && (error.message.includes('invalid_grant') || error.message.includes('Token has been expired or revoked'))) {
+        throw new Error('Refresh token has been revoked. User must re-authenticate.');
+      }
+      throw new Error(`Token refresh request failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+    
+    if (!tokenResponse.token) {
+      throw new Error('Google returned empty access token');
+    }
+    
+    // Enhanced expiry calculation with validation
     let expiryDate: Date;
-    if (tokenResponse.res?.data.expires_in) {
-      expiryDate = new Date(Date.now() + tokenResponse.res.data.expires_in * 1000);
+    const expiresInSeconds = tokenResponse.res?.data.expires_in;
+    
+    if (expiresInSeconds && typeof expiresInSeconds === 'number' && expiresInSeconds > 0) {
+      expiryDate = new Date(Date.now() + expiresInSeconds * 1000);
     } else {
-      // Conservative 1 hour TTL if expires_in is not provided
-      console.warn('expires_in not provided by Google, using conservative 1 hour TTL');
+      // Conservative 1 hour TTL with warning
+      console.warn(`Invalid or missing expires_in (${expiresInSeconds}) from Google, using conservative 1 hour TTL`);
       expiryDate = new Date(Date.now() + 60 * 60 * 1000);
     }
     
-    // Update stored tokens with reliable expiry
-    await storage.refreshGoogleTokens(userId, {
+    // Validate the new expiry isn't in the past
+    if (expiryDate <= new Date()) {
+      throw new Error('Received token with past expiry date');
+    }
+    
+    // Update stored tokens
+    const updatedTokens = await storage.refreshGoogleTokens(userId, {
       accessToken: tokenResponse.token,
       expiryDate
     });
+    
+    if (!updatedTokens) {
+      throw new Error('Failed to store refreshed tokens');
+    }
     
     console.log(`Successfully refreshed tokens for user ${userId}, expires at ${expiryDate.toISOString()}`);
     
@@ -152,8 +234,8 @@ export async function refreshUserGoogleTokens(userId: string): Promise<any> {
       expiry_date: expiryDate.getTime()
     };
   } catch (error) {
-    console.error('Failed to refresh Google tokens:', error);
-    throw error;
+    console.error(`Failed to refresh Google tokens for user ${userId}:`, error);
+    throw error; // Re-throw to maintain error context
   }
 }
 
@@ -165,42 +247,52 @@ export async function getValidGoogleClient(userId: string): Promise<OAuth2Client
   
   const client = createOAuth2Client();
   
-  // Check if token is expired or will expire soon (within 5 minutes)
-  // Treat missing expiry date as expired for safety
+  // Enhanced token validation with better error handling
   const now = new Date();
-  const expiryThreshold = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes from now
+  const expiryThreshold = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes buffer
   const shouldRefresh = !storedTokens.expiryDate || storedTokens.expiryDate <= expiryThreshold;
   
   if (shouldRefresh) {
-    // Token is expired, missing expiry, or will expire soon - refresh it
-    if (storedTokens.refreshToken) {
-      try {
-        await refreshUserGoogleTokens(userId);
-        // Get updated tokens
-        const updatedTokens = await storage.getGoogleTokens(userId);
-        if (updatedTokens) {
-          client.setCredentials({
-            access_token: updatedTokens.accessToken,
-            refresh_token: updatedTokens.refreshToken,
-            expiry_date: updatedTokens.expiryDate?.getTime()
-          });
-        } else {
-          throw new Error('Failed to retrieve updated tokens after refresh');
-        }
-      } catch (error) {
-        console.error('Token refresh failed:', error);
-        throw new Error('Failed to refresh expired Google tokens');
+    // Token needs refresh
+    if (!storedTokens.refreshToken) {
+      throw new Error('Token expired and no refresh token available. User must re-authenticate.');
+    }
+    
+    try {
+      console.log(`Refreshing expired tokens for user ${userId}`);
+      await refreshUserGoogleTokens(userId);
+      
+      // Get updated tokens and verify they're valid
+      const updatedTokens = await storage.getGoogleTokens(userId);
+      if (!updatedTokens || !updatedTokens.accessToken) {
+        throw new Error('Failed to retrieve valid tokens after refresh');
       }
-    } else {
-      throw new Error('Token expired and no refresh token available');
+      
+      // Verify the new token isn't already expired
+      if (updatedTokens.expiryDate && updatedTokens.expiryDate <= now) {
+        throw new Error('Received expired token from refresh');
+      }
+      
+      client.setCredentials({
+        access_token: updatedTokens.accessToken,
+        refresh_token: updatedTokens.refreshToken,
+        expiry_date: updatedTokens.expiryDate?.getTime()
+      });
+      
+      console.log(`Successfully refreshed tokens for user ${userId}`);
+    } catch (error) {
+      console.error(`Token refresh failed for user ${userId}:`, error);
+      throw new Error(`Failed to refresh expired Google tokens: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   } else {
-    // Token is still valid
+    // Token is still valid - set credentials
     client.setCredentials({
       access_token: storedTokens.accessToken,
       refresh_token: storedTokens.refreshToken,
       expiry_date: storedTokens.expiryDate?.getTime()
     });
+    
+    console.log(`Using valid tokens for user ${userId}, expires: ${storedTokens.expiryDate?.toISOString() || 'unknown'}`);
   }
   
   return client;
