@@ -5,9 +5,12 @@ import { z } from "zod";
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  googleId: text("google_id").notNull().unique(),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
+  username: text("username").notNull().unique(),
+  hashedPassword: text("hashed_password"),
+  // Keep Google fields for compatibility but make them optional
+  googleId: text("google_id").unique(),
+  email: text("email").unique(),
+  name: text("name"),
   profileImage: text("profile_image"),
   createdAt: timestamp("created_at").defaultNow(),
 });

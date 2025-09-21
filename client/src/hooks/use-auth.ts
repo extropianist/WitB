@@ -1,7 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
 
-interface LocalUser {
+// Local user interface for our authentication system
+export interface LocalUser {
   id: string;
   username: string;
 }

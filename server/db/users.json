@@ -5,6 +5,30 @@
       "username": "user_HJyeXW",
       "hashedPassword": "$2b$12$I37JqHCxoYkZy0Ac/Fy1r.X0Ss4Kt6MHk7hO2BWhLxlWdiJngBFz.",
       "createdAt": "2025-09-21T22:35:20.935Z"
+    },
+    {
+      "id": "a3053e60-ea9c-4bd1-bae9-f6fe84aa2456",
+      "username": "testuser",
+      "hashedPassword": "$2b$12$bWDtP22Alwv6HFipX7LRX.MDNs44kmDkmQkvqbuQFycpQDX71kdoO",
+      "createdAt": "2025-09-21T22:37:10.392Z"
+    },
+    {
+      "id": "512f0841-0c36-4f64-abdc-dc14a9d158f6",
+      "username": "user_GA-31N",
+      "hashedPassword": "$2b$12$E0tLzyyJbuM/6CPpjhS8HefGwKsHMV6ac/ZV2zgpE0cJvTBLa/Yoe",
+      "createdAt": "2025-09-21T22:38:13.157Z"
+    },
+    {
+      "id": "5ca42936-ef3d-4928-bf48-08ae09c5fd70",
+      "username": "user_XpDULv",
+      "hashedPassword": "$2b$12$tKWIHB3XvdT33JY9X6R3B.Ha7P8hWQVBkJDA4Ue5M0tAMOad7wVS2",
+      "createdAt": "2025-09-21T22:40:12.929Z"
+    },
+    {
+      "id": "cd5f38fb-1b63-4168-9713-e3a52625cbd1",
+      "username": "user_DI2zA0",
+      "hashedPassword": "$2b$12$OGTUSl8j1z.1rkaPOujKwOB1YwwBCyl43CJuawKXWG36FKLjsrU5S",
+      "createdAt": "2025-09-21T22:42:31.893Z"
     }
   ]
 }

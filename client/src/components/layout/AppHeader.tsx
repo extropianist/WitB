@@ -55,16 +55,16 @@ export default function AppHeader({ breadcrumbs = [] }: AppHeaderProps) {
           
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-3">
-              <span className="hidden sm:inline text-sm text-muted-foreground" data-testid="text-user-email">
-                {user.email}
+              <span className="hidden sm:inline text-sm text-muted-foreground" data-testid="text-user-username">
+                {user.username || user.email}
               </span>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button variant="ghost" className="flex items-center space-x-2 h-auto p-2 hover:bg-secondary">
                     <Avatar className="w-6 h-6">
-                      <AvatarImage src={user.profileImage || undefined} alt={user.name} />
+                      <AvatarImage src={user.profileImage || undefined} alt={user.name || user.username} />
                       <AvatarFallback className="text-xs">
-                        {user.name.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                        {(user.name || user.username).split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                       </AvatarFallback>
                     </Avatar>
                     <Badge variant="secondary" className="text-xs">
