@@ -73,18 +73,14 @@ export async function getGoogleTokens(code: string) {
 
 export async function saveUserGoogleTokens(userId: string, tokens: any): Promise<void> {
   try {
-    // Parse scopes into proper string array
-    let scopesArray: string[] | null = null;
-    if (tokens.scope && typeof tokens.scope === 'string') {
-      scopesArray = tokens.scope.split(' ').filter(scope => scope.length > 0);
-    }
-    
-    const tokenData: InsertGoogleTokens = {
+    const tokenData: any = {
       userId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || null,
       expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      scopes: scopesArray
+      scopes: tokens.scope && typeof tokens.scope === 'string' 
+        ? tokens.scope.split(' ').filter((s: string) => s.trim().length > 0)
+        : null
     };
     
     // Check if tokens already exist for this user
