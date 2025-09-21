@@ -26,7 +26,7 @@ import {
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and, count, inArray, sql } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -99,63 +99,70 @@ export class DatabaseStorage implements IStorage {
 
   // Room methods
   async getRoomsByUser(userId: string): Promise<RoomWithStats[]> {
-    // Get all memberships for the user
-    const userMemberships = await db
-      .select()
+    // Optimized approach: Get user memberships and room data in one query
+    const roomsWithMemberships = await db
+      .select({
+        // Room fields
+        id: rooms.id,
+        name: rooms.name,
+        description: rooms.description,
+        createdAt: rooms.createdAt,
+        createdBy: rooms.createdBy,
+        driveFolder: rooms.driveFolder,
+        // User role in this room
+        userRole: memberships.role,
+      })
       .from(memberships)
+      .innerJoin(rooms, eq(memberships.roomId, rooms.id))
       .where(eq(memberships.userId, userId));
 
-    const roomIds = userMemberships.map(m => m.roomId);
-    if (roomIds.length === 0) return [];
+    if (roomsWithMemberships.length === 0) return [];
 
-    // Get rooms with stats
-    const roomsWithStats: RoomWithStats[] = [];
-    
-    for (const membership of userMemberships) {
-      const [room] = await db
-        .select()
-        .from(rooms)
-        .where(eq(rooms.id, membership.roomId));
-      
-      if (!room) continue;
+    const roomIds = roomsWithMemberships.map(room => room.id);
 
-      // Count boxes in room
-      const [boxResult] = await db
-        .select({ count: count() })
-        .from(boxes)
-        .where(eq(boxes.roomId, room.id));
-      
-      // Count items in room boxes
-      const roomBoxes = await db
-        .select({ id: boxes.id })
-        .from(boxes)
-        .where(eq(boxes.roomId, room.id));
-      
-      let itemCount = 0;
-      for (const box of roomBoxes) {
-        const [itemResult] = await db
-          .select({ count: count() })
-          .from(items)
-          .where(eq(items.boxId, box.id));
-        itemCount += itemResult.count;
-      }
+    // Get all counts in parallel with Promise.all for better performance
+    const [boxCounts, itemCounts, memberCounts] = await Promise.all([
+      // Box counts per room
+      db.select({
+        roomId: boxes.roomId,
+        boxCount: count(boxes.id)
+      })
+      .from(boxes)
+      .where(roomIds.length === 1 ? eq(boxes.roomId, roomIds[0]) : inArray(boxes.roomId, roomIds))
+      .groupBy(boxes.roomId),
 
-      // Count members in room
-      const [memberResult] = await db
-        .select({ count: count() })
-        .from(memberships)
-        .where(eq(memberships.roomId, room.id));
+      // Item counts per room (via boxes)
+      db.select({
+        roomId: boxes.roomId,
+        itemCount: count(items.id)
+      })
+      .from(boxes)
+      .leftJoin(items, eq(boxes.id, items.boxId))
+      .where(roomIds.length === 1 ? eq(boxes.roomId, roomIds[0]) : inArray(boxes.roomId, roomIds))
+      .groupBy(boxes.roomId),
 
-      roomsWithStats.push({
-        ...room,
-        boxCount: boxResult.count,
-        itemCount,
-        memberCount: memberResult.count,
-        userRole: membership.role
-      });
-    }
+      // Member counts per room
+      db.select({
+        roomId: memberships.roomId,
+        memberCount: count(memberships.id)
+      })
+      .from(memberships)
+      .where(roomIds.length === 1 ? eq(memberships.roomId, roomIds[0]) : inArray(memberships.roomId, roomIds))
+      .groupBy(memberships.roomId)
+    ]);
 
-    return roomsWithStats;
+    // Create lookup maps for efficient data combination
+    const boxCountMap = new Map(boxCounts.map(({ roomId, boxCount }) => [roomId, boxCount]));
+    const itemCountMap = new Map(itemCounts.map(({ roomId, itemCount }) => [roomId, itemCount]));
+    const memberCountMap = new Map(memberCounts.map(({ roomId, memberCount }) => [roomId, memberCount]));
+
+    // Combine all data
+    return roomsWithMemberships.map(room => ({
+      ...room,
+      boxCount: boxCountMap.get(room.id) || 0,
+      itemCount: itemCountMap.get(room.id) || 0,
+      memberCount: memberCountMap.get(room.id) || 0
+    }));
   }
 
   async getRoom(roomId: string): Promise<Room | undefined> {
@@ -355,7 +362,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async saveGoogleTokens(insertTokens: InsertGoogleTokens): Promise<GoogleTokens> {
-    const [tokens] = await db.insert(googleTokens).values([insertTokens]).returning();
+    // Ensure scopes is properly typed as string[] or null
+    const tokenData = {
+      ...insertTokens,
+      scopes: insertTokens.scopes ? Array.from(insertTokens.scopes as string[]) : null
+    };
+    const [tokens] = await db.insert(googleTokens).values([tokenData]).returning();
     return tokens;
   }
 
@@ -655,7 +667,7 @@ export class MemStorage implements IStorage {
       id,
       refreshToken: insertTokens.refreshToken || null,
       expiryDate: insertTokens.expiryDate || null,
-      scopes: insertTokens.scopes || null,
+      scopes: insertTokens.scopes ? Array.from(insertTokens.scopes as string[]) : null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
