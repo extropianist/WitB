@@ -1,5 +1,6 @@
 import { google } from 'googleapis';
 import { getValidGoogleClient } from './google-auth.js';
+import { storage } from '../storage.js';
 
 export interface DriveFile {
   id: string;
@@ -14,38 +15,45 @@ class GoogleDriveService {
     const auth = await getValidGoogleClient(userId);
     return google.drive({ version: 'v3', auth });
   }
-  private userAppRootFolders: Map<string, string> = new Map();
 
   async getAppRootFolder(userId: string): Promise<string> {
-    if (this.userAppRootFolders.has(userId)) {
-      return this.userAppRootFolders.get(userId)!;
-    }
-
     try {
-      // Search for existing app folder
+      // Check persistent cache first
+      const cachedFolder = await storage.getDriveFolderCache(userId);
+      if (cachedFolder) {
+        return cachedFolder.appRootFolderId;
+      }
+
+      // Search for existing app folder in Google Drive
       const drive = await this.getDriveService(userId);
       const response = await drive.files.list({
         q: "name='InventoryApp' and mimeType='application/vnd.google-apps.folder'",
         fields: 'files(id, name)',
       });
 
+      let folderId: string;
+
       if (response.data.files && response.data.files.length > 0) {
-        const folderId = response.data.files[0].id!;
-        this.userAppRootFolders.set(userId, folderId);
-        return folderId;
+        // Found existing folder, cache it
+        folderId = response.data.files[0].id!;
+      } else {
+        // Create app root folder if it doesn't exist
+        const createResponse = await drive.files.create({
+          requestBody: {
+            name: 'InventoryApp',
+            mimeType: 'application/vnd.google-apps.folder',
+          },
+          fields: 'id',
+        });
+        folderId = createResponse.data.id!;
       }
 
-      // Create app root folder if it doesn't exist
-      const createResponse = await drive.files.create({
-        requestBody: {
-          name: 'InventoryApp',
-          mimeType: 'application/vnd.google-apps.folder',
-        },
-        fields: 'id',
+      // Save to persistent cache
+      await storage.saveDriveFolderCache({
+        userId,
+        appRootFolderId: folderId
       });
 
-      const folderId = createResponse.data.id!;
-      this.userAppRootFolders.set(userId, folderId);
       return folderId;
     } catch (error) {
       console.error('Failed to get/create app root folder:', error);

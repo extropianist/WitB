@@ -13,6 +13,8 @@ import {
   type InsertMembership,
   type GoogleTokens,
   type InsertGoogleTokens,
+  type DriveFolderCache,
+  type InsertDriveFolderCache,
   type RoomWithStats,
   type BoxWithStats,
   type ItemWithPhotos,
@@ -22,7 +24,8 @@ import {
   items,
   itemPhotos,
   memberships,
-  googleTokens
+  googleTokens,
+  driveFolderCache
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -77,6 +80,11 @@ export interface IStorage {
   updateGoogleTokens(userId: string, updates: Partial<GoogleTokens>): Promise<GoogleTokens | undefined>;
   deleteGoogleTokens(userId: string): Promise<boolean>;
   refreshGoogleTokens(userId: string, newTokens: { accessToken: string; expiryDate?: Date }): Promise<GoogleTokens | undefined>;
+
+  // Drive Folder Cache
+  getDriveFolderCache(userId: string): Promise<DriveFolderCache | undefined>;
+  saveDriveFolderCache(cache: InsertDriveFolderCache): Promise<DriveFolderCache>;
+  updateDriveFolderCache(userId: string, appRootFolderId: string): Promise<DriveFolderCache | undefined>;
 }
 
 // Database implementation using Drizzle ORM
@@ -397,6 +405,39 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return tokens || undefined;
   }
+
+  // Drive Folder Cache methods
+  async getDriveFolderCache(userId: string): Promise<DriveFolderCache | undefined> {
+    const [cache] = await db.select().from(driveFolderCache).where(eq(driveFolderCache.userId, userId));
+    return cache || undefined;
+  }
+
+  async saveDriveFolderCache(insertCache: InsertDriveFolderCache): Promise<DriveFolderCache> {
+    // Use UPSERT to handle concurrent requests for the same user
+    try {
+      const [cache] = await db.insert(driveFolderCache).values([insertCache]).returning();
+      return cache;
+    } catch (error: any) {
+      // Handle unique constraint violation by updating instead
+      if (error?.code === '23505' || error?.message?.includes('unique constraint')) {
+        const updated = await this.updateDriveFolderCache(insertCache.userId, insertCache.appRootFolderId);
+        if (updated) return updated;
+      }
+      throw error;
+    }
+  }
+
+  async updateDriveFolderCache(userId: string, appRootFolderId: string): Promise<DriveFolderCache | undefined> {
+    const [cache] = await db
+      .update(driveFolderCache)
+      .set({
+        appRootFolderId,
+        updatedAt: new Date()
+      })
+      .where(eq(driveFolderCache.userId, userId))
+      .returning();
+    return cache || undefined;
+  }
 }
 
 export class MemStorage implements IStorage {
@@ -407,6 +448,7 @@ export class MemStorage implements IStorage {
   private itemPhotos: Map<string, ItemPhoto> = new Map();
   private memberships: Map<string, Membership> = new Map();
   private googleTokens: Map<string, GoogleTokens> = new Map();
+  private driveFolderCache: Map<string, DriveFolderCache> = new Map();
 
   async getUser(id: string): Promise<User | undefined> {
     return this.users.get(id);
@@ -702,6 +744,36 @@ export class MemStorage implements IStorage {
       updatedAt: new Date()
     };
     this.googleTokens.set(existing.id, updated);
+    return updated;
+  }
+
+  // Drive Folder Cache methods (in-memory implementation)
+  async getDriveFolderCache(userId: string): Promise<DriveFolderCache | undefined> {
+    return Array.from(this.driveFolderCache.values()).find(cache => cache.userId === userId);
+  }
+
+  async saveDriveFolderCache(insertCache: InsertDriveFolderCache): Promise<DriveFolderCache> {
+    const id = randomUUID();
+    const cache: DriveFolderCache = {
+      ...insertCache,
+      id,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    this.driveFolderCache.set(id, cache);
+    return cache;
+  }
+
+  async updateDriveFolderCache(userId: string, appRootFolderId: string): Promise<DriveFolderCache | undefined> {
+    const existing = await this.getDriveFolderCache(userId);
+    if (!existing) return undefined;
+    
+    const updated: DriveFolderCache = {
+      ...existing,
+      appRootFolderId,
+      updatedAt: new Date()
+    };
+    this.driveFolderCache.set(existing.id, updated);
     return updated;
   }
 }

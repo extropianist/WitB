@@ -5,7 +5,80 @@ export interface SheetRow {
   [key: string]: string | number | null;
 }
 
+interface RetryOptions {
+  maxRetries?: number;
+  baseDelay?: number;
+  maxDelay?: number;
+  jitterFactor?: number;
+}
+
 class GoogleSheetsService {
+  private defaultRetryOptions: RetryOptions = {
+    maxRetries: 5,
+    baseDelay: 1000, // 1 second
+    maxDelay: 30000, // 30 seconds
+    jitterFactor: 0.1 // 10% jitter
+  };
+
+  private async retryWithExponentialBackoff<T>(
+    operation: () => Promise<T>,
+    options: RetryOptions = {}
+  ): Promise<T> {
+    const { maxRetries, baseDelay, maxDelay } = { ...this.defaultRetryOptions, ...options };
+    
+    for (let attempt = 0; attempt <= maxRetries!; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        // Comprehensive error classification for Google APIs
+        const statusCode = error?.response?.status || error?.status || error?.code;
+        const isQuotaError = statusCode === 429 || 
+                           (statusCode === 403 && this.isGoogleQuotaError(error));
+        
+        const isTemporaryError = statusCode >= 500 && statusCode < 600;
+        const isNetworkError = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'].includes(error?.code);
+        
+        // Only retry for quota, temporary server errors, or network issues
+        if (!isQuotaError && !isTemporaryError && !isNetworkError) {
+          throw error;
+        }
+        
+        // Don't retry if we've reached max attempts
+        if (attempt === maxRetries) {
+          console.error(`Google Sheets API failed after ${maxRetries + 1} attempts:`, error);
+          throw error;
+        }
+        
+        // Honor Retry-After header if present
+        let delay: number;
+        const retryAfter = error?.response?.headers?.['retry-after'];
+        if (retryAfter) {
+          delay = parseInt(retryAfter) * 1000; // Convert to milliseconds
+          console.warn(`Google Sheets API respecting Retry-After: ${retryAfter}s`);
+        } else {
+          // Use full jitter exponential backoff
+          const maxDelayForAttempt = Math.min(baseDelay! * Math.pow(2, attempt), maxDelay!);
+          delay = Math.random() * maxDelayForAttempt;
+        }
+        
+        const errorType = isQuotaError ? 'quota' : isTemporaryError ? 'server' : 'network';
+        console.warn(`Google Sheets API ${errorType} error on attempt ${attempt + 1}/${maxRetries! + 1}, retrying in ${Math.round(delay)}ms...`);
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    throw new Error('Retry loop completed without success or failure');
+  }
+
+  private isGoogleQuotaError(error: any): boolean {
+    // Check for Google-specific quota error reasons
+    const errors = error?.response?.data?.error?.errors || error?.data?.error?.errors || error?.errors || [];
+    return errors.some((err: any) => 
+      ['userRateLimitExceeded', 'rateLimitExceeded', 'quotaExceeded', 'backendError'].includes(err.reason)
+    );
+  }
   private async getSheetsService(userId: string) {
     const auth = await getValidGoogleClient(userId);
     return google.sheets({ version: 'v4', auth });
@@ -17,7 +90,7 @@ class GoogleSheetsService {
   }
 
   async createSpreadsheet(userId: string, title: string): Promise<string> {
-    try {
+    return this.retryWithExponentialBackoff(async () => {
       const sheets = await this.getSheetsService(userId);
       const response = await sheets.spreadsheets.create({
         requestBody: {
@@ -38,14 +111,11 @@ class GoogleSheetsService {
       const spreadsheetId = response.data.spreadsheetId!;
       this.spreadsheetId = spreadsheetId;
       
-      // Initialize headers for each sheet
+      // Initialize headers for each sheet (already has retry logic via appendRows)
       await this.initializeSheetHeaders(userId);
       
       return spreadsheetId;
-    } catch (error) {
-      console.error('Failed to create spreadsheet:', error);
-      throw error;
-    }
+    });
   }
 
   private async initializeSheetHeaders(userId: string) {
@@ -64,7 +134,7 @@ class GoogleSheetsService {
   }
 
   async getRows(userId: string, sheetName: string, range?: string): Promise<string[][]> {
-    try {
+    return this.retryWithExponentialBackoff(async () => {
       const sheets = await this.getSheetsService(userId);
       const fullRange = range ? `${sheetName}!${range}` : sheetName;
       const response = await sheets.spreadsheets.values.get({
@@ -73,14 +143,11 @@ class GoogleSheetsService {
       });
 
       return response.data.values || [];
-    } catch (error) {
-      console.error(`Failed to get rows from ${sheetName}:`, error);
-      throw error;
-    }
+    });
   }
 
   async appendRows(userId: string, sheetName: string, rows: (string | number | null)[][]): Promise<void> {
-    try {
+    return this.retryWithExponentialBackoff(async () => {
       const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
@@ -91,14 +158,11 @@ class GoogleSheetsService {
           values: rows,
         },
       });
-    } catch (error) {
-      console.error(`Failed to append rows to ${sheetName}:`, error);
-      throw error;
-    }
+    });
   }
 
   async updateRows(userId: string, sheetName: string, range: string, rows: (string | number | null)[][]): Promise<void> {
-    try {
+    return this.retryWithExponentialBackoff(async () => {
       const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
@@ -108,14 +172,11 @@ class GoogleSheetsService {
           values: rows,
         },
       });
-    } catch (error) {
-      console.error(`Failed to update rows in ${sheetName}:`, error);
-      throw error;
-    }
+    });
   }
 
   async batchUpdate(userId: string, requests: any[]): Promise<void> {
-    try {
+    return this.retryWithExponentialBackoff(async () => {
       const sheets = await this.getSheetsService(userId);
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId: this.spreadsheetId,
@@ -123,27 +184,20 @@ class GoogleSheetsService {
           requests,
         },
       });
-    } catch (error) {
-      console.error('Failed to batch update spreadsheet:', error);
-      throw error;
-    }
+    });
   }
 
   async findRowByValue(userId: string, sheetName: string, columnIndex: number, value: string): Promise<number | null> {
-    try {
-      const rows = await this.getRows(userId, sheetName);
-      
-      for (let i = 0; i < rows.length; i++) {
-        if (rows[i][columnIndex] === value) {
-          return i + 1; // Sheets are 1-indexed
-        }
+    // getRows already uses exponential backoff, so we just need the search logic
+    const rows = await this.getRows(userId, sheetName);
+    
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i][columnIndex] === value) {
+        return i + 1; // Sheets are 1-indexed
       }
-      
-      return null;
-    } catch (error) {
-      console.error(`Failed to find row in ${sheetName}:`, error);
-      throw error;
     }
+    
+    return null;
   }
 }
 

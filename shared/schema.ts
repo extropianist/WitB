@@ -76,6 +76,14 @@ export const googleTokens = pgTable("google_tokens", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const driveFolderCache = pgTable("drive_folder_cache", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").references(() => users.id).notNull().unique(),
+  appRootFolderId: text("app_root_folder_id").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
@@ -117,6 +125,12 @@ export const insertGoogleTokensSchema = createInsertSchema(googleTokens).omit({
   updatedAt: true,
 });
 
+export const insertDriveFolderCacheSchema = createInsertSchema(driveFolderCache).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -140,6 +154,9 @@ export type PullSheet = typeof pullSheets.$inferSelect;
 
 export type GoogleTokens = typeof googleTokens.$inferSelect;
 export type InsertGoogleTokens = z.infer<typeof insertGoogleTokensSchema>;
+
+export type DriveFolderCache = typeof driveFolderCache.$inferSelect;
+export type InsertDriveFolderCache = z.infer<typeof insertDriveFolderCacheSchema>;
 
 // Extended types with relations
 export type RoomWithStats = Room & {
