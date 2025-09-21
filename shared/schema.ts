@@ -20,7 +20,7 @@ export const rooms = pgTable("rooms", {
   name: text("name").notNull(),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow(),
-  createdBy: varchar("created_by").references(() => users.id).notNull(),
+  createdBy: varchar("created_by").notNull(),
   driveFolder: text("drive_folder"), // Google Drive folder ID
 });
 
@@ -57,7 +57,7 @@ export const itemPhotos = pgTable("item_photos", {
 export const memberships = pgTable("memberships", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   roomId: varchar("room_id").references(() => rooms.id).notNull(),
-  userId: varchar("user_id").references(() => users.id).notNull(),
+  userId: varchar("user_id").notNull(),
   role: text("role").notNull(), // "admin" | "viewer"
   createdAt: timestamp("created_at").defaultNow(),
 });

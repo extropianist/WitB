@@ -329,10 +329,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const room = await storage.createRoom(roomData);
-      
-      // Create Google Drive folder for the room
-      const driveFolder = await googleDriveService.createFolder(req.session.userId!, room.name);
-      await storage.updateRoom(room.id, { driveFolder });
 
       // Add creator as admin
       await storage.createMembership({

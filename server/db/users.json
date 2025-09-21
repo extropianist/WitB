@@ -35,6 +35,18 @@
       "username": "user_mlE0wy",
       "hashedPassword": "$2b$12$KXyAd7HhBirLKBLuMAVAVehuNuAHI6GdFNfjZWNLHdSSNDHy5idDm",
       "createdAt": "2025-09-21T22:45:19.708Z"
+    },
+    {
+      "id": "cf6d5d48-4251-4aa8-9b7c-6536110bc3e4",
+      "username": "testuser-JrhV",
+      "hashedPassword": "$2b$12$.UhVRtBaWHHbsDsG/Q5fHOAahzZLTvnkj9VAXiw8C0FYBHmqGKPbC",
+      "createdAt": "2025-09-21T22:54:27.610Z"
+    },
+    {
+      "id": "807379bc-bf5b-4823-bbca-deef0cdd526b",
+      "username": "testuser-5CdF",
+      "hashedPassword": "$2b$12$mcv6VgHFNg3xyNlVO0PiueSillVN3FWGfFCf3N25pMfT0bMASLFii",
+      "createdAt": "2025-09-21T22:58:38.604Z"
     }
   ]
 }
