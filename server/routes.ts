@@ -337,7 +337,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: "admin"
       });
 
-      res.json(room);
+      res.status(201).json(room);
     } catch (error) {
       console.error("Failed to create room:", error);
       res.status(500).json({ message: "Failed to create room" });
