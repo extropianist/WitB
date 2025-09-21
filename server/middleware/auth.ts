@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 // Extend the Session interface to include userId
 declare module 'express-session' {
   interface SessionData {
-    userId: string;
+    userId?: string;
   }
 }
 

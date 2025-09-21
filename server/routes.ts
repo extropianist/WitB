@@ -2,9 +2,8 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage.js";
-import { verifyGoogleToken, getGoogleAuthUrl, getGoogleTokens, saveUserGoogleTokens, refreshUserGoogleTokens, revokeGoogleTokens } from "./services/google-auth.js";
-import { googleDriveService } from "./services/google-drive.js";
-import { qrGeneratorService } from "./services/qr-generator.js";
+import { localUserService } from "./db/localdb.js";
+import { checkAuth, requireAuth as authMiddleware } from "./middleware/auth.js";
 import { insertRoomSchema, insertBoxSchema, insertItemSchema, insertMembershipSchema } from "@shared/schema.js";
 
 declare module 'express-session' {
@@ -14,6 +13,9 @@ declare module 'express-session' {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize local database
+  await localUserService.init();
+  
   // Require SESSION_SECRET for security
   if (!process.env.SESSION_SECRET) {
     throw new Error('SESSION_SECRET environment variable is required for secure sessions');
@@ -35,19 +37,97 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   }));
 
-  // Auth middleware
-  const requireAuth = (req: any, res: any, next: any) => {
-    if (!req.session.userId) {
-      return res.status(401).json({ message: "Authentication required" });
-    }
-    next();
-  };
+  // Auth middleware - use the local requireAuth
+  const requireAuth = authMiddleware;
 
-  // Auth routes
-  app.get("/api/auth/config", (req, res) => {
-    res.json({ 
-      googleClientId: process.env.GOOGLE_CLIENT_ID 
+  // Local Authentication routes
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      const user = await localUserService.createUser(username, password);
+
+      // Set session
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration failed:', err);
+          return res.status(500).json({ message: 'Registration failed' });
+        }
+        
+        req.session.userId = user.id;
+        res.status(201).json({ 
+          message: "Registration successful",
+          user: { id: user.id, username: user.username }
+        });
+      });
+    } catch (error) {
+      console.error("Registration error:", error);
+      if (error instanceof Error) {
+        res.status(400).json({ message: error.message });
+      } else {
+        res.status(500).json({ message: "Registration failed" });
+      }
+    }
+  });
+
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { username, password } = req.body;
+
+      if (!username || !password) {
+        return res.status(400).json({ message: "Username and password are required" });
+      }
+
+      const user = await localUserService.authenticateUser(username, password);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+
+      // Set session
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration failed:', err);
+          return res.status(500).json({ message: 'Login failed' });
+        }
+        
+        req.session.userId = user.id;
+        res.json({ 
+          message: "Login successful",
+          user: { id: user.id, username: user.username }
+        });
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destruction failed:', err);
+        return res.status(500).json({ message: 'Logout failed' });
+      }
+      res.clearCookie('connect.sid');
+      res.json({ message: "Logout successful" });
     });
+  });
+
+  app.get("/api/auth/me", requireAuth, async (req, res) => {
+    try {
+      const user = await localUserService.getUserById(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      res.json({ id: user.id, username: user.username });
+    } catch (error) {
+      console.error("Get current user error:", error);
+      res.status(500).json({ message: "Failed to get user information" });
+    }
   });
 
   app.get("/api/auth/google", requireAuth, (req, res) => {

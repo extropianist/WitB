@@ -16,7 +16,7 @@ interface DatabaseData {
 
 // Initialize the database
 const adapter = new JSONFileSync<DatabaseData>('server/db/users.json');
-const db = new Low(adapter, { users: [] });
+const db = new Low<DatabaseData>(adapter, { users: [] });
 
 class LocalUserService {
   private saltRounds = 12;
@@ -41,7 +41,7 @@ class LocalUserService {
     await db.read();
     
     // Check if username already exists
-    const existingUser = db.data.users.find(user => user.username.toLowerCase() === username.toLowerCase());
+    const existingUser = db.data!.users.find(user => user.username.toLowerCase() === username.toLowerCase());
     if (existingUser) {
       throw new Error('Username already exists');
     }
@@ -63,7 +63,7 @@ class LocalUserService {
       createdAt: new Date()
     };
 
-    db.data.users.push(user);
+    db.data!.users.push(user);
     await db.write();
 
     return user;
@@ -72,7 +72,7 @@ class LocalUserService {
   async authenticateUser(username: string, password: string): Promise<LocalUser | null> {
     await db.read();
     
-    const user = db.data.users.find(user => user.username.toLowerCase() === username.toLowerCase());
+    const user = db.data!.users.find(user => user.username.toLowerCase() === username.toLowerCase());
     if (!user) {
       return null;
     }
@@ -87,17 +87,17 @@ class LocalUserService {
 
   async getUserById(id: string): Promise<LocalUser | null> {
     await db.read();
-    return db.data.users.find(user => user.id === id) || null;
+    return db.data!.users.find(user => user.id === id) || null;
   }
 
   async getUserByUsername(username: string): Promise<LocalUser | null> {
     await db.read();
-    return db.data.users.find(user => user.username.toLowerCase() === username.toLowerCase()) || null;
+    return db.data!.users.find(user => user.username.toLowerCase() === username.toLowerCase()) || null;
   }
 
   async getAllUsers(): Promise<LocalUser[]> {
     await db.read();
-    return db.data.users;
+    return db.data!.users;
   }
 }
 
