@@ -29,6 +29,12 @@
       "username": "user_DI2zA0",
       "hashedPassword": "$2b$12$OGTUSl8j1z.1rkaPOujKwOB1YwwBCyl43CJuawKXWG36FKLjsrU5S",
       "createdAt": "2025-09-21T22:42:31.893Z"
+    },
+    {
+      "id": "51f68940-201a-4684-9ea3-a02f9b0972d9",
+      "username": "user_mlE0wy",
+      "hashedPassword": "$2b$12$KXyAd7HhBirLKBLuMAVAVehuNuAHI6GdFNfjZWNLHdSSNDHy5idDm",
+      "createdAt": "2025-09-21T22:45:19.708Z"
     }
   ]
 }

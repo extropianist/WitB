@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Home } from "lucide-react";
 
 export default function RegisterPage() {
   const { register, isRegistering } = useAuth();
+  const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -41,6 +42,8 @@ export default function RegisterPage() {
 
     try {
       await register({ username: username.trim(), password });
+      // Redirect to home page after successful registration
+      setLocation('/');
     } catch (error) {
       setError(error instanceof Error ? error.message : "Registration failed");
     }

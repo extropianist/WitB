@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { Home } from "lucide-react";
 
 export default function LoginPage() {
   const { login, isLoggingIn } = useAuth();
+  const [, setLocation] = useLocation();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -25,6 +26,8 @@ export default function LoginPage() {
 
     try {
       await login({ username: username.trim(), password });
+      // Redirect to home page after successful login
+      setLocation('/');
     } catch (error) {
       setError(error instanceof Error ? error.message : "Login failed");
     }
