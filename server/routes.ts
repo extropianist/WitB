@@ -399,22 +399,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       const box = await storage.createBox(boxData);
-      
-      // Create Google Drive folder for the box
-      const room = await storage.getRoom(roomId);
-      if (room?.driveFolder) {
-        const driveFolder = await googleDriveService.createFolder(req.session.userId!, box.label, room.driveFolder);
-        await storage.updateBox(box.id, { driveFolder });
 
-        // Generate QR code
-        const qrResult = await qrGeneratorService.generateAndUploadQRCode(req.session.userId!, box.id, driveFolder);
-        await storage.updateBox(box.id, { 
-          qrCode: qrResult.fileId,
-          qrOwnerUserId: req.session.userId!
-        });
-      }
-
-      res.json(box);
+      res.status(201).json(box);
     } catch (error) {
       console.error("Failed to create box:", error);
       res.status(500).json({ message: "Failed to create box" });
