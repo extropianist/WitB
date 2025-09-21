@@ -4,11 +4,15 @@ import type { InsertGoogleTokens } from '../../shared/schema.js';
 
 // Factory function to create a new OAuth client for each request
 function createOAuth2Client(): OAuth2Client {
-  return new OAuth2Client(
-    process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID || "default_client_id",
-    process.env.GOOGLE_CLIENT_SECRET || "default_client_secret",
-    process.env.GOOGLE_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/api/auth/google/callback`
-  );
+  const clientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${process.env.REPLIT_DOMAINS?.split(',')[0] || 'http://localhost:5000'}/api/auth/google/callback`;
+  
+  if (!clientId || !clientSecret) {
+    throw new Error('Google OAuth configuration missing: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required');
+  }
+  
+  return new OAuth2Client(clientId, clientSecret, redirectUri);
 }
 
 export interface GoogleUserInfo {
@@ -73,14 +77,24 @@ export async function getGoogleTokens(code: string) {
 
 export async function saveUserGoogleTokens(userId: string, tokens: any): Promise<void> {
   try {
-    const tokenData: any = {
+    // Validate token data
+    if (!tokens.access_token) {
+      throw new Error('Access token is required');
+    }
+    
+    // Parse and validate scopes - ensure proper string[] type
+    let scopes: string[] | null = null;
+    if (tokens.scope && typeof tokens.scope === 'string') {
+      const scopeList = tokens.scope.split(' ').filter((s: string) => s.trim().length > 0);
+      scopes = scopeList.length > 0 ? [...scopeList] : null;
+    }
+    
+    const tokenData: InsertGoogleTokens = {
       userId,
       accessToken: tokens.access_token,
       refreshToken: tokens.refresh_token || null,
       expiryDate: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      scopes: tokens.scope && typeof tokens.scope === 'string' 
-        ? tokens.scope.split(' ').filter((s: string) => s.trim().length > 0)
-        : null
+      scopes
     };
     
     // Check if tokens already exist for this user
@@ -111,17 +125,31 @@ export async function refreshUserGoogleTokens(userId: string): Promise<any> {
     
     const tokenResponse = await client.getAccessToken();
     
-    // Update stored tokens
+    if (!tokenResponse.token) {
+      throw new Error('Failed to obtain new access token');
+    }
+    
+    // Calculate expiry - use expires_in if available, otherwise set conservative 1 hour TTL
+    let expiryDate: Date;
+    if (tokenResponse.res?.data.expires_in) {
+      expiryDate = new Date(Date.now() + tokenResponse.res.data.expires_in * 1000);
+    } else {
+      // Conservative 1 hour TTL if expires_in is not provided
+      console.warn('expires_in not provided by Google, using conservative 1 hour TTL');
+      expiryDate = new Date(Date.now() + 60 * 60 * 1000);
+    }
+    
+    // Update stored tokens with reliable expiry
     await storage.refreshGoogleTokens(userId, {
-      accessToken: tokenResponse.token!,
-      expiryDate: tokenResponse.res?.data.expires_in ? 
-        new Date(Date.now() + tokenResponse.res.data.expires_in * 1000) : undefined
+      accessToken: tokenResponse.token,
+      expiryDate
     });
+    
+    console.log(`Successfully refreshed tokens for user ${userId}, expires at ${expiryDate.toISOString()}`);
     
     return { 
       access_token: tokenResponse.token, 
-      expiry_date: tokenResponse.res?.data.expires_in ? 
-        Date.now() + tokenResponse.res.data.expires_in * 1000 : undefined 
+      expiry_date: expiryDate.getTime()
     };
   } catch (error) {
     console.error('Failed to refresh Google tokens:', error);
@@ -138,21 +166,30 @@ export async function getValidGoogleClient(userId: string): Promise<OAuth2Client
   const client = createOAuth2Client();
   
   // Check if token is expired or will expire soon (within 5 minutes)
+  // Treat missing expiry date as expired for safety
   const now = new Date();
   const expiryThreshold = new Date(now.getTime() + 5 * 60 * 1000); // 5 minutes from now
+  const shouldRefresh = !storedTokens.expiryDate || storedTokens.expiryDate <= expiryThreshold;
   
-  if (storedTokens.expiryDate && storedTokens.expiryDate <= expiryThreshold) {
-    // Token is expired or will expire soon, refresh it
+  if (shouldRefresh) {
+    // Token is expired, missing expiry, or will expire soon - refresh it
     if (storedTokens.refreshToken) {
-      await refreshUserGoogleTokens(userId);
-      // Get updated tokens
-      const updatedTokens = await storage.getGoogleTokens(userId);
-      if (updatedTokens) {
-        client.setCredentials({
-          access_token: updatedTokens.accessToken,
-          refresh_token: updatedTokens.refreshToken,
-          expiry_date: updatedTokens.expiryDate?.getTime()
-        });
+      try {
+        await refreshUserGoogleTokens(userId);
+        // Get updated tokens
+        const updatedTokens = await storage.getGoogleTokens(userId);
+        if (updatedTokens) {
+          client.setCredentials({
+            access_token: updatedTokens.accessToken,
+            refresh_token: updatedTokens.refreshToken,
+            expiry_date: updatedTokens.expiryDate?.getTime()
+          });
+        } else {
+          throw new Error('Failed to retrieve updated tokens after refresh');
+        }
+      } catch (error) {
+        console.error('Token refresh failed:', error);
+        throw new Error('Failed to refresh expired Google tokens');
       }
     } else {
       throw new Error('Token expired and no refresh token available');
