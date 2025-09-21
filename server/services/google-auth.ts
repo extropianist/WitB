@@ -86,7 +86,7 @@ export async function saveUserGoogleTokens(userId: string, tokens: any): Promise
     let scopes: string[] | null = null;
     if (tokens.scope && typeof tokens.scope === 'string') {
       const scopeList = tokens.scope.split(' ').filter((s: string) => s.trim().length > 0);
-      scopes = scopeList.length > 0 ? [...scopeList] : null;
+      scopes = scopeList.length > 0 ? Array.from(scopeList) : null;
     }
     
     const tokenData: InsertGoogleTokens = {
