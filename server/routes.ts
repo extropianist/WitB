@@ -339,7 +339,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         // Generate QR code
         const qrResult = await qrGeneratorService.generateAndUploadQRCode(req.session.userId!, box.id, driveFolder);
-        await storage.updateBox(box.id, { qrCode: qrResult.fileId });
+        await storage.updateBox(box.id, { 
+          qrCode: qrResult.fileId,
+          qrOwnerUserId: req.session.userId!
+        });
       }
 
       res.json(box);
@@ -485,6 +488,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // QR regeneration
+  app.get("/api/boxes/:boxId/qr-image", requireAuth, async (req, res) => {
+    try {
+      const { boxId } = req.params;
+      
+      const box = await storage.getBox(boxId);
+      if (!box) {
+        return res.status(404).json({ message: "Box not found" });
+      }
+
+      // Check user has access to the room (either admin or viewer)
+      const hasAccess = await storage.hasRoomAccess(box.roomId, req.session.userId!);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // If no QR code exists, generate one (admin only)
+      if (!box.qrCode) {
+        const isAdmin = await storage.isRoomAdmin(box.roomId, req.session.userId!);
+        if (!isAdmin) {
+          return res.status(404).json({ message: "QR code not found" });
+        }
+
+        const qrResult = await qrGeneratorService.generateAndUploadQRCode(
+          req.session.userId!,
+          boxId, 
+          box.driveFolder || undefined
+        );
+        
+        await storage.updateBox(boxId, { 
+          qrCode: qrResult.fileId,
+          qrOwnerUserId: req.session.userId!
+        });
+        
+        // Get the image bytes from Google Drive and return them
+        const imageBuffer = await googleDriveService.getFileBytes(req.session.userId!, qrResult.fileId);
+        res.set('Content-Type', 'image/png');
+        return res.send(imageBuffer);
+      }
+
+      // Get the QR code image bytes from Google Drive using owner's tokens
+      const qrOwnerUserId = box.qrOwnerUserId || req.session.userId!; // Fallback for legacy boxes
+      const imageBuffer = await googleDriveService.getFileBytes(qrOwnerUserId, box.qrCode);
+      res.set('Content-Type', 'image/png');
+      res.send(imageBuffer);
+    } catch (error) {
+      console.error("Failed to get QR code image:", error);
+      res.status(500).json({ message: "Failed to get QR code image" });
+    }
+  });
+
   app.post("/api/boxes/:boxId/regenerate-qr", requireAuth, async (req, res) => {
     try {
       const { boxId } = req.params;
@@ -507,7 +560,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         box.driveFolder || undefined
       );
       
-      await storage.updateBox(boxId, { qrCode: qrResult.fileId });
+      await storage.updateBox(boxId, { 
+        qrCode: qrResult.fileId,
+        qrOwnerUserId: req.session.userId!
+      });
       
       res.json({ qrCodeUrl: qrResult.webViewLink });
     } catch (error) {

@@ -153,6 +153,38 @@ class GoogleDriveService {
     }
   }
 
+  async getFileViewLink(userId: string, fileId: string): Promise<string> {
+    try {
+      const drive = await this.getDriveService(userId);
+      const response = await drive.files.get({
+        fileId,
+        fields: 'webViewLink'
+      });
+      
+      return response.data.webViewLink || '';
+    } catch (error) {
+      console.error(`Failed to get file view link for ${fileId}:`, error);
+      throw error;
+    }
+  }
+
+  async getFileBytes(userId: string, fileId: string): Promise<Buffer> {
+    try {
+      const drive = await this.getDriveService(userId);
+      const response = await drive.files.get({
+        fileId,
+        alt: 'media'
+      }, {
+        responseType: 'arraybuffer'
+      });
+      
+      return Buffer.from(response.data as ArrayBuffer);
+    } catch (error) {
+      console.error(`Failed to get file bytes for ${fileId}:`, error);
+      throw error;
+    }
+  }
+
   async createThumbnail(userId: string, originalFileId: string, parentId?: string): Promise<DriveFile> {
     try {
       // For now, we'll return the original file as a placeholder

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { QrCode, Download, RefreshCw } from "lucide-react";
 import { useRegenerateQR } from "@/hooks/use-boxes";
 import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 import type { Box } from "@shared/schema";
 
 interface QRCodeModalProps {
@@ -19,12 +20,16 @@ interface QRCodeModalProps {
 export default function QRCodeModal({ box, open, onOpenChange }: QRCodeModalProps) {
   const { regenerateQR, isRegenerating } = useRegenerateQR();
   const { toast } = useToast();
+  const [imageError, setImageError] = useState(false);
+  const [imageKey, setImageKey] = useState(0); // Force image reload after regeneration
 
   if (!box) return null;
 
   const handleRegenerateQR = () => {
     regenerateQR(box.id, {
       onSuccess: () => {
+        setImageKey(prev => prev + 1); // Force image reload
+        setImageError(false);
         toast({
           title: "QR code regenerated",
           description: "A new QR code has been generated for this box.",
@@ -58,11 +63,22 @@ export default function QRCodeModal({ box, open, onOpenChange }: QRCodeModalProp
         
         <div className="text-center space-y-4">
           <div className="w-48 h-48 bg-muted rounded-lg mx-auto flex items-center justify-center">
-            {/* QR Code would be generated server-side and displayed here */}
-            <div className="text-center">
-              <QrCode className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">QR Code</p>
-            </div>
+            {imageError ? (
+              <div className="text-center">
+                <QrCode className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">QR code not available</p>
+              </div>
+            ) : (
+              <img 
+                key={imageKey}
+                src={`/api/boxes/${box.id}/qr-image?t=${imageKey}`}
+                alt={`QR Code for ${box.label}`}
+                className="w-full h-full object-contain rounded-lg"
+                data-testid={`img-qr-${box.id}`}
+                onError={() => setImageError(true)}
+                onLoad={() => setImageError(false)}
+              />
+            )}
           </div>
           
           <div className="space-y-2">

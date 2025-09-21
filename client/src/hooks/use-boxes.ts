@@ -41,6 +41,18 @@ export function useBox(boxId: string) {
   };
 }
 
+export function useQRCodeImage(boxId: string | null) {
+  return useQuery({
+    queryKey: ["/api/boxes", boxId, "qr-image"],
+    queryFn: async () => {
+      if (!boxId) return null;
+      const res = await apiRequest("GET", `/api/boxes/${boxId}/qr-image`);
+      return res.json() as Promise<{ qrCodeUrl: string }>;
+    },
+    enabled: !!boxId,
+  });
+}
+
 export function useRegenerateQR() {
   const queryClient = useQueryClient();
 
@@ -51,6 +63,7 @@ export function useRegenerateQR() {
     },
     onSuccess: (_, boxId) => {
       queryClient.invalidateQueries({ queryKey: ["/api/boxes", boxId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/boxes", boxId, "qr-image"] });
     },
   });
 
