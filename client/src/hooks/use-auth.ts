@@ -1,15 +1,30 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest, getQueryFn } from "@/lib/queryClient";
-import type { User } from "@shared/schema";
+
+interface LocalUser {
+  id: string;
+  username: string;
+}
 
 interface AuthResponse {
-  user: User;
+  message: string;
+  user: LocalUser;
+}
+
+interface LoginCredentials {
+  username: string;
+  password: string;
+}
+
+interface RegisterCredentials {
+  username: string;
+  password: string;
 }
 
 export function useAuth() {
   const queryClient = useQueryClient();
 
-  const { data: user, isLoading } = useQuery<User | null>({
+  const { data: user, isLoading } = useQuery<LocalUser | null>({
     queryKey: ["/api/auth/me"],
     queryFn: getQueryFn({ on401: "returnNull" }),
     retry: false,
@@ -17,8 +32,18 @@ export function useAuth() {
   });
 
   const loginMutation = useMutation({
-    mutationFn: async (token: string) => {
-      const res = await apiRequest("POST", "/api/auth/google/verify", { token });
+    mutationFn: async (credentials: LoginCredentials) => {
+      const res = await apiRequest("POST", "/api/auth/login", credentials);
+      return res.json() as Promise<AuthResponse>;
+    },
+    onSuccess: (data) => {
+      queryClient.setQueryData(["/api/auth/me"], data.user);
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (credentials: RegisterCredentials) => {
+      const res = await apiRequest("POST", "/api/auth/register", credentials);
       return res.json() as Promise<AuthResponse>;
     },
     onSuccess: (data) => {
@@ -41,8 +66,10 @@ export function useAuth() {
     isLoading,
     isAuthenticated: !!user,
     login: loginMutation.mutate,
+    register: registerMutation.mutate,
     logout: logoutMutation.mutate,
     isLoggingIn: loginMutation.isPending,
+    isRegistering: registerMutation.isPending,
     isLoggingOut: logoutMutation.isPending,
   };
 }

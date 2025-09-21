@@ -6,7 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import NotFound from "@/pages/not-found";
-import Login from "@/pages/Login";
+import LoginPage from "@/pages/LoginPage";
+import RegisterPage from "@/pages/RegisterPage";
 import Home from "@/pages/Home";
 import RoomDetail from "@/pages/RoomDetail";
 import BoxDetail from "@/pages/BoxDetail";
@@ -27,7 +28,14 @@ function AuthenticatedApp() {
   }
 
   if (!user) {
-    return <Login />;
+    return (
+      <Switch>
+        <Route path="/login" component={LoginPage} />
+        <Route path="/register" component={RegisterPage} />
+        <Route path="/" component={LoginPage} />
+        <Route component={LoginPage} />
+      </Switch>
+    );
   }
 
   return (
