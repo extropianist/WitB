@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useBox } from "@/hooks/use-boxes";
 import { useRoom } from "@/hooks/use-rooms";
 import { useItems } from "@/hooks/use-items";
-import { ArrowLeft, QrCode, RefreshCw } from "lucide-react";
+import { ArrowLeft, QrCode, RefreshCw, FileText } from "lucide-react";
 import type { ItemWithPhotos } from "@shared/schema";
 
 interface BoxDetailProps {
@@ -35,6 +35,44 @@ export default function BoxDetail({ params }: BoxDetailProps) {
   const handleAddPhotos = (item: ItemWithPhotos) => {
     // TODO: Implement Google Picker integration
     console.log("Add photos for item:", item.id);
+  };
+
+  const handleDownloadPullSheet = async () => {
+    try {
+      const response = await fetch(`/api/boxes/${boxId}/pull-sheet`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate pull sheet');
+      }
+
+      // Get the filename from the Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `pull-sheet-${box.label.replace(/[^a-zA-Z0-9]/g, '-')}.pdf`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Failed to download pull sheet:', error);
+      // TODO: Show toast notification for error
+    }
   };
 
   if (roomLoading || boxLoading) {
@@ -117,6 +155,14 @@ export default function BoxDetail({ params }: BoxDetailProps) {
               >
                 <RefreshCw className="mr-2 h-4 w-4" />
                 Update QR
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={handleDownloadPullSheet}
+                data-testid={`button-download-pull-sheet-${boxId}`}
+              >
+                <FileText className="mr-2 h-4 w-4" />
+                Pull Sheet
               </Button>
               <AddItemModal boxId={boxId} />
             </div>

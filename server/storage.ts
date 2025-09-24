@@ -15,6 +15,8 @@ import {
   type InsertGoogleTokens,
   type DriveFolderCache,
   type InsertDriveFolderCache,
+  type PullSheet,
+  type InsertPullSheet,
   type RoomWithStats,
   type BoxWithStats,
   type ItemWithPhotos,
@@ -25,7 +27,8 @@ import {
   itemPhotos,
   memberships,
   googleTokens,
-  driveFolderCache
+  driveFolderCache,
+  pullSheets
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db } from "./db";
@@ -85,6 +88,9 @@ export interface IStorage {
   getDriveFolderCache(userId: string): Promise<DriveFolderCache | undefined>;
   saveDriveFolderCache(cache: InsertDriveFolderCache): Promise<DriveFolderCache>;
   updateDriveFolderCache(userId: string, appRootFolderId: string): Promise<DriveFolderCache | undefined>;
+
+  // Pull Sheets
+  createPullSheet(pullSheet: InsertPullSheet): Promise<PullSheet>;
 }
 
 // Database implementation using Drizzle ORM
@@ -775,6 +781,12 @@ export class MemStorage implements IStorage {
     };
     this.driveFolderCache.set(existing.id, updated);
     return updated;
+  }
+
+  // Pull Sheets methods
+  async createPullSheet(insertPullSheet: InsertPullSheet): Promise<PullSheet> {
+    const [pullSheet] = await db.insert(pullSheets).values(insertPullSheet).returning();
+    return pullSheet;
   }
 }
 

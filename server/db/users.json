@@ -65,6 +65,18 @@
       "username": "testuser-LpMv8X",
       "hashedPassword": "$2b$12$Gt71FWs.ZYdhLvjiWhzsKOPV.Ne37qk8yPrW8TaeGdu57BSGYisiS",
       "createdAt": "2025-09-24T01:17:38.859Z"
+    },
+    {
+      "id": "a307df1f-3d89-4fee-a2f4-3ecdd6d9016e",
+      "username": "e2e-tester",
+      "hashedPassword": "$2b$12$N4pSa3ZPZWNwZTZeQVZ0wukamxjjpfhR71u1jKJ1nrXAnUNe4JtNC",
+      "createdAt": "2025-09-24T01:57:24.805Z"
+    },
+    {
+      "id": "cf13cacb-5516-4543-b777-44df0a26e62b",
+      "username": "e2e_user_12345",
+      "hashedPassword": "$2b$12$kYHQxjot7ihZwvC4qjJ6re5muoqQ/VRADLOpGv.az.4dYolH4LIc6",
+      "createdAt": "2025-09-24T02:01:50.096Z"
     }
   ]
 }

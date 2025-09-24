@@ -6,6 +6,7 @@ import { localUserService } from "./db/localdb.js";
 import { checkAuth, requireAuth as authMiddleware } from "./middleware/auth.js";
 import { insertRoomSchema, insertBoxSchema, insertItemSchema, insertMembershipSchema } from "@shared/schema.js";
 import { qrGeneratorService } from "./services/qr-generator.js";
+import { pdfGeneratorService } from "./services/pdf-generator.js";
 
 declare module 'express-session' {
   interface SessionData {
@@ -623,6 +624,88 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Failed to regenerate QR code:", error);
       res.status(500).json({ message: "Failed to regenerate QR code" });
+    }
+  });
+
+  // Pull sheets routes
+  app.get("/api/boxes/:boxId/pull-sheet", requireAuth, async (req, res) => {
+    try {
+      const { boxId } = req.params;
+      
+      const box = await storage.getBox(boxId);
+      if (!box) {
+        return res.status(404).json({ message: "Box not found" });
+      }
+
+      // Check user has access to the room
+      const hasAccess = await storage.hasRoomAccess(box.roomId, req.session.userId!);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Generate PDF
+      const pdfBuffer = await pdfGeneratorService.generatePullSheet(boxId);
+      
+      // Track pull sheet generation
+      try {
+        await storage.createPullSheet({
+          boxId: boxId,
+          qrImageDriveFileId: null, // Not using Google Drive anymore
+          lastGeneratedAt: new Date()
+        });
+      } catch (error) {
+        // Don't fail if tracking fails
+        console.warn("Failed to track pull sheet generation:", error);
+      }
+
+      // Set response headers for PDF download
+      res.set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="pull-sheet-${box.label.replace(/[^a-zA-Z0-9]/g, '-')}.pdf"`,
+        'Content-Length': pdfBuffer.length.toString()
+      });
+
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error("Failed to generate pull sheet:", error);
+      res.status(500).json({ message: "Failed to generate pull sheet" });
+    }
+  });
+
+  app.post("/api/boxes/:boxId/generate-pull-sheet", requireAuth, async (req, res) => {
+    try {
+      const { boxId } = req.params;
+      
+      const box = await storage.getBox(boxId);
+      if (!box) {
+        return res.status(404).json({ message: "Box not found" });
+      }
+
+      // Check user has access to the room
+      const hasAccess = await storage.hasRoomAccess(box.roomId, req.session.userId!);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Track pull sheet generation
+      try {
+        await storage.createPullSheet({
+          boxId: boxId,
+          qrImageDriveFileId: null, // Not using Google Drive anymore
+          lastGeneratedAt: new Date()
+        });
+      } catch (error) {
+        console.warn("Failed to track pull sheet generation:", error);
+      }
+
+      res.json({ 
+        success: true, 
+        message: "Pull sheet ready for download",
+        downloadUrl: `/api/boxes/${boxId}/pull-sheet`
+      });
+    } catch (error) {
+      console.error("Failed to prepare pull sheet:", error);
+      res.status(500).json({ message: "Failed to prepare pull sheet" });
     }
   });
 

@@ -135,6 +135,10 @@ export const insertDriveFolderCacheSchema = createInsertSchema(driveFolderCache)
   updatedAt: true,
 });
 
+export const insertPullSheetSchema = createInsertSchema(pullSheets).omit({
+  id: true,
+});
+
 // Types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -155,6 +159,7 @@ export type Membership = typeof memberships.$inferSelect;
 export type InsertMembership = z.infer<typeof insertMembershipSchema>;
 
 export type PullSheet = typeof pullSheets.$inferSelect;
+export type InsertPullSheet = z.infer<typeof insertPullSheetSchema>;
 
 export type GoogleTokens = typeof googleTokens.$inferSelect;
 export type InsertGoogleTokens = z.infer<typeof insertGoogleTokensSchema>;
