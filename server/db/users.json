@@ -59,6 +59,12 @@
       "username": "bdose",
       "hashedPassword": "$2b$12$1hKUIVhyNnAVTHNbYAcEhOLAW8ceMzw2oMf.8OyDbfcOY2noQrHv.",
       "createdAt": "2025-09-21T23:02:17.678Z"
+    },
+    {
+      "id": "62ee55bf-2c31-4d26-93f3-d9884d009ab0",
+      "username": "testuser-LpMv8X",
+      "hashedPassword": "$2b$12$Gt71FWs.ZYdhLvjiWhzsKOPV.Ne37qk8yPrW8TaeGdu57BSGYisiS",
+      "createdAt": "2025-09-24T01:17:38.859Z"
     }
   ]
 }
