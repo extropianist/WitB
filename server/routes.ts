@@ -5,6 +5,7 @@ import { storage } from "./storage.js";
 import { localUserService } from "./db/localdb.js";
 import { checkAuth, requireAuth as authMiddleware } from "./middleware/auth.js";
 import { insertRoomSchema, insertBoxSchema, insertItemSchema, insertMembershipSchema } from "@shared/schema.js";
+import { qrGeneratorService } from "./services/qr-generator.js";
 
 declare module 'express-session' {
   interface SessionData {
@@ -565,28 +566,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(404).json({ message: "QR code not found" });
         }
 
-        const qrResult = await qrGeneratorService.generateAndUploadQRCode(
-          req.session.userId!,
-          boxId, 
-          box.driveFolder || undefined
-        );
+        const qrCodeDataURL = await qrGeneratorService.generateQRCodeForBox(boxId);
         
         await storage.updateBox(boxId, { 
-          qrCode: qrResult.fileId,
+          qrCode: qrCodeDataURL,
           qrOwnerUserId: req.session.userId!
         });
         
-        // Get the image bytes from Google Drive and return them
-        const imageBuffer = await googleDriveService.getFileBytes(req.session.userId!, qrResult.fileId);
+        // Convert data URL to buffer and serve as image
+        const base64Data = qrCodeDataURL.split(',')[1];
+        const imageBuffer = Buffer.from(base64Data, 'base64');
         res.set('Content-Type', 'image/png');
         return res.send(imageBuffer);
       }
 
-      // Get the QR code image bytes from Google Drive using owner's tokens
-      const qrOwnerUserId = box.qrOwnerUserId || req.session.userId!; // Fallback for legacy boxes
-      const imageBuffer = await googleDriveService.getFileBytes(qrOwnerUserId, box.qrCode);
-      res.set('Content-Type', 'image/png');
-      res.send(imageBuffer);
+      // Serve existing QR code from database
+      if (box.qrCode.startsWith('data:image')) {
+        // It's a data URL, convert to buffer and serve
+        const base64Data = box.qrCode.split(',')[1];
+        const imageBuffer = Buffer.from(base64Data, 'base64');
+        res.set('Content-Type', 'image/png');
+        res.send(imageBuffer);
+      } else {
+        // Legacy format - return 404 for now
+        res.status(404).json({ message: "QR code not found" });
+      }
     } catch (error) {
       console.error("Failed to get QR code image:", error);
       res.status(500).json({ message: "Failed to get QR code image" });
@@ -608,19 +612,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Admin access required" });
       }
 
-      const qrResult = await qrGeneratorService.regenerateQRCode(
-        req.session.userId!,
-        boxId, 
-        box.qrCode || undefined, 
-        box.driveFolder || undefined
-      );
+      const qrCodeDataURL = await qrGeneratorService.regenerateQRCodeForBox(boxId);
       
       await storage.updateBox(boxId, { 
-        qrCode: qrResult.fileId,
+        qrCode: qrCodeDataURL,
         qrOwnerUserId: req.session.userId!
       });
       
-      res.json({ qrCodeUrl: qrResult.webViewLink });
+      res.json({ success: true, message: "QR code regenerated successfully" });
     } catch (error) {
       console.error("Failed to regenerate QR code:", error);
       res.status(500).json({ message: "Failed to regenerate QR code" });
