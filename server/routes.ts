@@ -7,6 +7,7 @@ import { checkAuth, requireAuth as authMiddleware } from "./middleware/auth.js";
 import { insertRoomSchema, insertBoxSchema, insertItemSchema, insertMembershipSchema } from "@shared/schema.js";
 import { qrGeneratorService } from "./services/qr-generator.js";
 import { pdfGeneratorService } from "./services/pdf-generator.js";
+import { csvExporterService } from "./services/csv-exporter.js";
 
 declare module 'express-session' {
   interface SessionData {
@@ -706,6 +707,75 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Failed to prepare pull sheet:", error);
       res.status(500).json({ message: "Failed to prepare pull sheet" });
+    }
+  });
+
+  // CSV Export routes
+  app.get("/api/rooms/:roomId/export-csv", requireAuth, async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      
+      const room = await storage.getRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ message: "Room not found" });
+      }
+
+      // Check user has access to the room
+      const hasAccess = await storage.hasRoomAccess(roomId, req.session.userId!);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Generate combined CSV
+      const csvData = await csvExporterService.generateCombinedCsv(roomId);
+      
+      // Set response headers for CSV download
+      res.set({
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="room-export-${room.name.replace(/[^a-zA-Z0-9]/g, '-')}.csv"`,
+        'Content-Length': Buffer.byteLength(csvData, 'utf8').toString()
+      });
+
+      res.send(csvData);
+    } catch (error) {
+      console.error("Failed to export room CSV:", error);
+      res.status(500).json({ message: "Failed to export room data" });
+    }
+  });
+
+  app.get("/api/rooms/:roomId/export-detailed", requireAuth, async (req, res) => {
+    try {
+      const { roomId } = req.params;
+      
+      const room = await storage.getRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ message: "Room not found" });
+      }
+
+      // Check user has access to the room
+      const hasAccess = await storage.hasRoomAccess(roomId, req.session.userId!);
+      if (!hasAccess) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Generate separate CSV files
+      const { roomCsv, boxesCsv, itemsCsv } = await csvExporterService.exportRoomData(roomId);
+      
+      // For now, return the combined data as a single CSV
+      // TODO: In the future, this could return a ZIP file with separate CSVs
+      const combinedCsv = `# Room Data\n${roomCsv}\n\n# Boxes Data\n${boxesCsv}\n\n# Items Data\n${itemsCsv}`;
+      
+      // Set response headers for CSV download
+      res.set({
+        'Content-Type': 'text/csv',
+        'Content-Disposition': `attachment; filename="room-detailed-export-${room.name.replace(/[^a-zA-Z0-9]/g, '-')}.csv"`,
+        'Content-Length': Buffer.byteLength(combinedCsv, 'utf8').toString()
+      });
+
+      res.send(combinedCsv);
+    } catch (error) {
+      console.error("Failed to export detailed room CSV:", error);
+      res.status(500).json({ message: "Failed to export detailed room data" });
     }
   });
 

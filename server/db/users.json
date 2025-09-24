@@ -77,6 +77,12 @@
       "username": "e2e_user_12345",
       "hashedPassword": "$2b$12$kYHQxjot7ihZwvC4qjJ6re5muoqQ/VRADLOpGv.az.4dYolH4LIc6",
       "createdAt": "2025-09-24T02:01:50.096Z"
+    },
+    {
+      "id": "56a49578-7701-42d4-9637-14612412c5f0",
+      "username": "admin",
+      "hashedPassword": "$2b$12$FFc.TNezw1yGZnMY4yao..PsvpEbrT5XT6ZD/GjrZAkTptX1z3NMO",
+      "createdAt": "2025-09-24T02:20:07.203Z"
     }
   ]
 }

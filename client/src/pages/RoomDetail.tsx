@@ -26,6 +26,44 @@ export default function RoomDetail({ params }: RoomDetailProps) {
     (box.notes?.toLowerCase().includes(searchQuery.toLowerCase()) ?? false)
   );
 
+  const handleExportRoom = async () => {
+    try {
+      const response = await fetch(`/api/rooms/${roomId}/export-csv`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to export room data');
+      }
+
+      // Get the filename from the Content-Disposition header
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = `room-export-${room?.name.replace(/[^a-zA-Z0-9]/g, '-')}.csv`;
+      
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      // Create blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Failed to export room:', error);
+      // TODO: Show toast notification for error
+    }
+  };
+
   if (roomLoading) {
     return (
       <>
@@ -87,7 +125,7 @@ export default function RoomDetail({ params }: RoomDetailProps) {
             </div>
             
             <div className="flex items-center space-x-3">
-              <Button variant="outline" disabled data-testid="button-export-room">
+              <Button variant="outline" onClick={handleExportRoom} data-testid="button-export-room">
                 <Download className="mr-2 h-4 w-4" />
                 Export Room
               </Button>
