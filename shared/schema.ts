@@ -31,8 +31,6 @@ export const boxes = pgTable("boxes", {
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow(),
   driveFolder: text("drive_folder"), // Google Drive folder ID
-  qrCode: text("qr_code"), // QR code image file ID
-  qrOwnerUserId: varchar("qr_owner_user_id"), // User who owns the QR code file
 });
 
 export const items = pgTable("items", {
@@ -104,7 +102,6 @@ export const insertBoxSchema = createInsertSchema(boxes).omit({
   id: true,
   createdAt: true,
   driveFolder: true,
-  qrCode: true,
 });
 
 export const insertItemSchema = createInsertSchema(items).omit({
